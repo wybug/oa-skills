@@ -288,12 +288,22 @@ $AGENT_BROWSER --session "$SESSION_NAME" screenshot /tmp/oa_todo_detail_by_fdid.
 echo "✅ 截图已保存: /tmp/oa_todo_detail_by_fdid.png"
 
 # ============================================
-# 步骤4: 检测待办类型（会议安排 or 流程管理）
+# 步骤4: 检测待办类型（优先从标题识别）
 # ============================================
 echo ""
 echo "🔍 步骤4: 检测待办类型..."
 
-TODO_TYPE=$($AGENT_BROWSER --session "$SESSION_NAME" eval --stdin <<'EOF'
+# 优先从标题判断类型
+if [[ "$TITLE" == "邀请您参加会议"* ]]; then
+    echo "📋 根据标题判断: 会议安排（标题以'邀请您参加会议'开头）"
+    TODO_TYPE='{"type":"meeting","name":"会议安排"}'
+elif [[ "$TITLE" == "请审批"* ]]; then
+    echo "📋 根据标题判断: 流程管理（标题以'请审批'开头）"
+    TODO_TYPE='{"type":"workflow","name":"流程管理"}'
+else
+    # 标题无法判断时，从页面内容判断
+    echo "📋 标题无法判断，从页面内容判断..."
+    TODO_TYPE=$($AGENT_BROWSER --session "$SESSION_NAME" eval --stdin <<'EOF'
 (() => {
   const pageText = document.body.textContent;
 
@@ -301,7 +311,7 @@ TODO_TYPE=$($AGENT_BROWSER --session "$SESSION_NAME" eval --stdin <<'EOF'
   if (pageText.includes('会议通知') ||
       pageText.includes('会议安排') ||
       pageText.includes('会议邀请') ||
-      pageText.includes('参加') && pageText.includes('不参加')) {
+      (pageText.includes('参加') && pageText.includes('不参加'))) {
     return { type: 'meeting', name: '会议安排' };
   }
 
@@ -317,6 +327,7 @@ TODO_TYPE=$($AGENT_BROWSER --session "$SESSION_NAME" eval --stdin <<'EOF'
 })()
 EOF
 )
+fi
 
 TODO_TYPE_NAME=$(echo "$TODO_TYPE" | python3 -c "
 import sys, json
