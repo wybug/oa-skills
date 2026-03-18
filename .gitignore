@@ -37,3 +37,4 @@ coverage/
 
 # Shell 脚本打包
 package.sh
+typescript

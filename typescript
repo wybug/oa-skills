@@ -1,22 +1,0 @@
-Script started on Wed Mar 18 14:52:58 2026
-ls[1m[7m%[27m[1m[0m                                                                                                                                                                                                               
-]7;file://wangyundeMacBook-Air.local/Users/wangyun/.copaw/active_skills/query-oa-approval[0m[27m[24m[Jwangyun@wangyundeMacBook-Air query-oa-approval % [K[?2004hlls[?2004l
-evals				LICENSE				README.md			SECURITY.md			typescript
-EXAMPLES.md			package.sh			references			skill.json
-INSTALL.md			query-oa-approval-v2.1.0.tar.gz	scripts				SKILL.md
-[1m[7m%[27m[1m[0m                                                                                                                                                                                                               ]7;file://wangyundeMacBook-Air.local/Users/wangyun/.copaw/active_skills/query-oa-approval[0m[27m[24m[Jwangyun@wangyundeMacBook-Air query-oa-approval % [K[?2004hccdc  ccd scripts[1m/[0m[0m [?2004l
-[1m[7m%[27m[1m[0m                                                                                                                                                                                                               ]7;file://wangyundeMacBook-Air.local/Users/wangyun/.copaw/active_skills/query-oa-approval/scripts[0m[27m[24m[Jwangyun@wangyundeMacBook-Air scripts % [K[?2004hlls[?2004l
-approve_oa_todo.sh		batch_approve_oa_todo.sh	check_dependencies.sh		query_approval.sh
-approve.sh			batch_approve.sh		login.sh			query_oa_todo.sh
-[1m[7m%[27m[1m[0m                                                                                                                                                                                                               ]7;file://wangyundeMacBook-Air.local/Users/wangyun/.copaw/active_skills/query-oa-approval/scripts[0m[27m[24m[Jwangyun@wangyundeMacBook-Air scripts % [K[?2004hlls[?2004l
-approve_oa_todo.sh	approve.sh		batch_approve.sh	check_dependencies.sh	login.sh		query_approval.sh	query_oa_todo.sh	query_oa_todo.sh.bak
-[1m[7m%[27m[1m[0m                                                                                                                                                                                                               ]7;file://wangyundeMacBook-Air.local/Users/wangyun/.copaw/active_skills/query-oa-approval/scripts[0m[27m[24m[Jwangyun@wangyundeMacBook-Air scripts % [K[?2004h菜单    lls[?2004l
-approve_oa_todo.sh	batch_approve.sh	login.sh		query_oa_todo.sh	sync_oa_todos.sh
-approve.sh		check_dependencies.sh	query_approval.sh	query_oa_todo.sh.bak
-[1m[7m%[27m[1m[0m                                                                                                                                                                                                               ]7;file://wangyundeMacBook-Air.local/Users/wangyun/.copaw/active_skills/query-oa-approval/scripts[0m[27m[24m[Jwangyun@wangyundeMacBook-Air scripts % [K[?2004hlls[?2004l
-approve_oa_todo_by_title.sh	approve.sh			check_dependencies.sh		query_approval.sh		query_oa_todo.sh.bak
-approve_oa_todo.sh		batch_approve.sh		login.sh			query_oa_todo.sh		sync_oa_todos.sh
-[1m[7m%[27m[1m[0m                                                                                                                                                                                                               ]7;file://wangyundeMacBook-Air.local/Users/wangyun/.copaw/active_skills/query-oa-approval/scripts[0m[27m[24m[Jwangyun@wangyundeMacBook-Air scripts % [K[?2004hlls[?2004l
-approve_oa_todo_by_title.sh	approve.sh			check_dependencies.sh		query_approval.sh		query_oa_todo.sh.bak
-approve_oa_todo.sh		batch_approve.sh		login.sh			query_oa_todo.sh		sync_oa_todos.sh
-[1m[7m%[27m[1m[0m                                                                                                                                                                                                               ]7;file://wangyundeMacBook-Air.local/Users/wangyun/.copaw/active_skills/query-oa-approval/scripts[0m[27m[24m[Jwangyun@wangyundeMacBook-Air scripts % [K[?2004h
