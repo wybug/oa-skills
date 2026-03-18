@@ -38,6 +38,24 @@ description: 新国都集团OA费控系统审批自动化工具。**必须使用
 - `OA_USER_PASSWD`: OA系统密码（必需）
 - `OA_STATE_FILE`: 登录状态文件路径（可选，默认: /tmp/oa_login_state.json）
 
+## 依赖要求
+
+- **Node.js** >= 14.0.0
+- **npm** >= 6.0.0
+- **agent-browser**（自动检查，如未安装会提示）
+
+**自动安装**：首次运行脚本时，会自动检查 agent-browser，如未安装会提供详细的安装指引。
+
+**手动安装**：
+```bash
+# 全局安装（推荐）
+npm install -g agent-browser
+
+# 使用国内镜像
+npm config set registry https://registry.npmmirror.com
+npm install -g agent-browser
+```
+
 ---
 
 ## 快速开始

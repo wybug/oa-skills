@@ -16,26 +16,63 @@
 
 ## 📦 安装
 
-### 1. 克隆仓库
+详细安装指南请查看 [INSTALL.md](INSTALL.md)
+
+### 快速安装
+
+#### 1. 安装 Node.js
+
+```bash
+# macOS (使用 Homebrew)
+brew install node
+
+# Linux (Ubuntu/Debian)
+sudo apt update && sudo apt install nodejs npm
+
+# Windows
+# 下载官方安装包: https://nodejs.org/
+```
+
+#### 2. 克隆仓库
 
 ```bash
 git clone https://github.com/wybug/oa-skills.git
 cd oa-skills
 ```
 
-### 2. 安装依赖
+#### 3. 安装 agent-browser
 
 ```bash
+# 自动安装（推荐）
+./scripts/login.sh  # 首次运行会自动检测并提供安装指引
+
+# 或手动安装
 npm install -g agent-browser
 ```
 
-### 3. 配置环境变量
-
-在 CoPaw 的 Environments 中配置：
+#### 4. 配置环境变量
 
 ```bash
+# 在 CoPaw 的 Environments 中配置
 OA_USER_NAME=你的用户名
 OA_USER_PASSWD=你的密码
+
+# 或通过命令行
+export OA_USER_NAME="你的用户名"
+export OA_USER_PASSWD="你的密码"
+```
+
+### 验证安装
+
+```bash
+# 检查 Node.js
+node --version  # 应 >= 14.0.0
+
+# 检查 agent-browser
+npx agent-browser --version
+
+# 测试运行
+./scripts/login.sh
 ```
 
 ## 🚀 快速开始

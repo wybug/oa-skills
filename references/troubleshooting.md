@@ -1,5 +1,121 @@
 # 故障排查指南
 
+## 安装问题
+
+### 1. agent-browser 未安装
+
+**症状**：运行脚本时提示 "❌ 错误: agent-browser 未安装"
+
+**解决方案**：
+
+#### 方式 1：自动安装（推荐）
+脚本会自动检测并提供安装指引，按提示操作即可。
+
+#### 方式 2：手动安装
+
+```bash
+# 全局安装（推荐）
+npm install -g agent-browser
+
+# 验证安装
+npx agent-browser --version
+```
+
+**使用国内镜像加速**：
+```bash
+# 设置 npm 镜像
+npm config set registry https://registry.npmmirror.com
+
+# 安装
+npm install -g agent-browser
+
+# 恢复默认镜像（可选）
+npm config set registry https://registry.npmjs.org
+```
+
+### 2. Node.js 未安装
+
+**症状**：提示 "npx: command not found" 或 "npm: command not found"
+
+**解决方案**：
+
+#### macOS
+```bash
+# 使用 Homebrew
+brew install node
+
+# 或下载官方安装包
+# https://nodejs.org/
+```
+
+#### Linux (Ubuntu/Debian)
+```bash
+# 使用 apt
+sudo apt update
+sudo apt install nodejs npm
+
+# 或使用 nvm（推荐）
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+source ~/.bashrc
+nvm install --lts
+```
+
+#### Windows
+```bash
+# 下载官方安装包
+# https://nodejs.org/
+
+# 或使用 Chocolatey
+choco install nodejs
+```
+
+### 3. 权限问题
+
+**症状**：安装时提示 "EACCES" 或权限不足
+
+**解决方案**：
+
+#### macOS/Linux
+```bash
+# 方式 1：使用 sudo
+sudo npm install -g agent-browser
+
+# 方式 2：修改 npm 默认目录（推荐）
+mkdir ~/.npm-global
+npm config set prefix '~/.npm-global'
+echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc
+source ~/.bashrc
+npm install -g agent-browser
+```
+
+#### Windows
+```bash
+# 以管理员身份运行 PowerShell
+# 右键点击 PowerShell -> "以管理员身份运行"
+npm install -g agent-browser
+```
+
+### 4. 网络问题
+
+**症状**：安装超时或失败
+
+**解决方案**：
+
+```bash
+# 使用国内镜像
+npm config set registry https://registry.npmmirror.com
+
+# 或使用 cnpm
+npm install -g cnpm --registry=https://registry.npmmirror.com
+cnpm install -g agent-browser
+
+# 设置代理（如有）
+npm config set proxy http://proxy-server:port
+npm config set https-proxy http://proxy-server:port
+```
+
+---
+
 ## 常见问题
 
 ### 1. 登录失败

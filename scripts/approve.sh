@@ -4,14 +4,19 @@
 # 功能：检查登录状态有效期 -> 自动重新登录（如需要） -> 执行审批
 set -e
 
+# 获取脚本目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 检查依赖
+if ! "$SCRIPT_DIR/check_dependencies.sh"; then
+    exit 1
+fi
+
 AGENT_BROWSER="npx agent-browser"
 FEIKONG_SSO_URL="https://sso-oa.xgd.com/sso/login?service=https://ekuaibao.xgd.com:9080/ykb/single/sso?type=login"
 STATE_FILE="${OA_STATE_FILE:-/tmp/oa_login_state.json}"
 SESSION_NAME="oa-approve-$(date +%s%N)"
 LOGIN_TIMEOUT_MINUTES=${LOGIN_TIMEOUT_MINUTES:-10}
-
-# 获取脚本目录
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ============================================
 # 函数：检查登录状态是否有效

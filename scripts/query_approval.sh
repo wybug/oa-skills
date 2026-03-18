@@ -4,13 +4,18 @@
 # 功能：检查登录状态有效期 -> 自动重新登录（如需要） -> 查询待审批（支持单号查询）
 set -e
 
+# 获取脚本目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 检查依赖
+if ! "$SCRIPT_DIR/check_dependencies.sh"; then
+    exit 1
+fi
+
 AGENT_BROWSER="npx agent-browser"
 STATE_FILE="${OA_STATE_FILE:-/tmp/oa_login_state.json}"
 SESSION_NAME="oa-query-$(date +%s%N)"
 LOGIN_TIMEOUT_MINUTES=${LOGIN_TIMEOUT_MINUTES:-10}
-
-# 获取脚本目录
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ============================================
 # 参数处理

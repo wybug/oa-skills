@@ -4,6 +4,14 @@
 # 使用 agent-browser state save 功能保存cookies和session
 set -e
 
+# 获取脚本所在目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 检查依赖
+if ! "$SCRIPT_DIR/check_dependencies.sh"; then
+    exit 1
+fi
+
 AGENT_BROWSER="npx agent-browser"
 OA_URL="https://oa.xgd.com"
 SESSION_NAME="oa-login-$(date +%s)"
