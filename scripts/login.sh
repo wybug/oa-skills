@@ -4,6 +4,9 @@
 # 使用 agent-browser state save 功能保存cookies和session
 set -e
 
+# 设置时区为北京/上海时间
+export TZ=Asia/Shanghai
+
 # 获取脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

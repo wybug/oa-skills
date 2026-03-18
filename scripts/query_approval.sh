@@ -4,6 +4,9 @@
 # 功能：检查登录状态有效期 -> 自动重新登录（如需要） -> 查询待审批（支持单号查询）
 set -e
 
+# 设置时区为北京/上海时间
+export TZ=Asia/Shanghai
+
 # 获取脚本目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

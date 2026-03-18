@@ -4,6 +4,9 @@
 # 读取审批清单文件，并发执行审批
 set -e
 
+# 设置时区为北京/上海时间
+export TZ=Asia/Shanghai
+
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # 检查依赖
