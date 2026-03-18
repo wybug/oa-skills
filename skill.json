@@ -1,0 +1,122 @@
+{
+  "name": "query-oa-approval",
+  "version": "2.1.0",
+  "description": "新国都集团OA费控系统审批自动化工具。支持查询待审批流程、单据审批（同意/驳回）、批量审批。使用state save/load实现登录状态复用，支持多脚本并发执行。当用户需要查询费控待办、执行审批、批量处理单据时使用此技能。",
+  "author": "CoPaw",
+  "created": "2025-03-17",
+  "updated": "2025-03-18",
+  "tags": ["OA", "费控", "审批", "自动化", "批量处理"],
+  "requirements": {
+    "environment": [
+      {
+        "name": "OA_USER_NAME",
+        "description": "OA系统用户名",
+        "required": true,
+        "sensitive": true,
+        "security_note": "请勿在对话中透露用户名，仅在CoPaw Environments中配置"
+      },
+      {
+        "name": "OA_USER_PASSWD",
+        "description": "OA系统密码",
+        "required": true,
+        "sensitive": true,
+        "security_note": "请勿在对话中透露密码，仅在CoPaw Environments中配置"
+      },
+      {
+        "name": "OA_STATE_FILE",
+        "description": "登录状态文件路径（可选，默认: /tmp/oa_login_state.json）",
+        "required": false,
+        "default": "/tmp/oa_login_state.json"
+      }
+    ],
+    "dependencies": [
+      "agent-browser"
+    ],
+    "security": {
+      "data_protection": [
+      "环境变量仅在本地存储",
+      "不会上传到云端或服务器",
+      "AI助手不会主动询问用户名和密码",
+      "请勿在对话中透露敏感信息"
+    ],
+      "best_practices": [
+      "定期更换OA系统密码",
+      "更换密码后更新环境变量配置",
+      "使用完毕后关闭浏览器会话",
+      "定期清理临时文件和日志"
+    ],
+      "warnings": [
+      "切勿在对话中直接发送用户名或密码",
+      "切勿截图或记录配置界面",
+      "日志文件可能包含敏感信息，分享前请脱敏"
+    ]
+    }
+  },
+  "scripts": {
+    "login": "./scripts/login.sh",
+    "query": "./scripts/query_approval.sh",
+    "approve": "./scripts/approve.sh",
+    "batch": "./scripts/batch_approve.sh"
+  },
+  "usage": {
+    "examples": [
+      {
+        "command": "./scripts/login.sh",
+        "description": "登录并保存状态"
+      },
+      {
+        "command": "./scripts/query_approval.sh",
+        "description": "查询待审批列表"
+      },
+      {
+        "command": "./scripts/approve.sh FK20250101001 同意",
+        "description": "同意单据"
+      },
+      {
+        "command": "./scripts/approve.sh FK20250101002 驳回 费用超标",
+        "description": "驳回单据并填写原因"
+      },
+      {
+        "command": "./scripts/batch_approve.sh list.csv 3",
+        "description": "批量审批（并发3）"
+      }
+    ]
+  },
+  "features": [
+    "登录状态保存/加载机制",
+    "查询待审批流程",
+    "单据审批（同意/驳回）",
+    "智能查询（自动检查审批记录）",
+    "批量并发审批",
+    "完整的日志和截图记录"
+  ],
+  "changelog": {
+    "2.1.0": {
+      "date": "2025-03-18",
+      "changes": [
+        "增加智能查询功能（自动在审批记录中查询单据状态）",
+        "优化状态提取逻辑",
+        "增加审批时间和审批结果显示",
+        "优化错误提示信息"
+      ]
+    },
+    "2.0.0": {
+      "date": "2025-03-18",
+      "changes": [
+        "重构架构：登录与审批分离",
+        "增加state save/load机制",
+        "新增独立审批脚本approve.sh",
+        "新增批量审批脚本batch_approve.sh",
+        "支持多脚本并发执行"
+      ]
+    },
+    "1.0.0": {
+      "date": "2025-03-17",
+      "changes": [
+        "初始版本",
+        "实现自动登录OA系统",
+        "查询待审批流程"
+      ]
+    }
+  }
+}

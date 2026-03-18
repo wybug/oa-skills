@@ -1,0 +1,39 @@
+# 临时文件
+*.tmp
+*.bak
+*.log
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# Node modules
+node_modules/
+
+# 敏感信息
+.env
+.env.local
+
+# 备份文件
+*.backup
+*.old
+
+# 编辑器文件
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 测试输出
+test-output/
+coverage/
+
+# 临时状态文件
+*.state.json
+
+# 打包文件
+*.tar.gz
+*.zip
+
+# Shell 脚本打包
+package.sh
