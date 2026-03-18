@@ -1,6 +1,6 @@
 ---
 name: query-oa-approval
-description: 新国都集团OA费控系统审批自动化工具。**必须使用此技能当用户提到**：OA审批、费控审批、待办查询、OA待办、审批单据、同意单据、驳回单据、批量审批、费控系统、OA系统审批、查一下待办、批一下单子、处理OA待办、费控流程、审批流程、待审批列表、OA系统待办、我的待办、同步待办、导出待办、备份待办等任何与OA审批相关的操作。支持：费控系统查询（query_approval.sh）、费控系统审批（approve.sh）、批量审批（batch_approve.sh）、OA系统待办查询（query_oa_todo.sh）、OA系统待办审批（approve_oa_todo.sh）、OA系统待办同步（sync_oa_todos.sh）。使用state save/load实现登录复用，性能提升50%以上。
+description: 新国都集团OA费控系统审批自动化工具。**必须使用此技能当用户提到**：OA审批、费控审批、待办查询、OA待办、审批单据、同意单据、驳回单据、批量审批、费控系统、OA系统审批、查一下待办、批一下单子、处理OA待办、费控流程、审批流程、待审批列表、OA系统待办、我的待办、同步待办、导出待办、备份待办、通过fdId审批等任何与OA审批相关的操作。支持：费控系统查询（query_approval.sh）、费控系统审批（approve.sh）、批量审批（batch_approve.sh）、OA系统待办查询（query_oa_todo.sh）、OA系统待办审批（approve_oa_todo.sh）、OA系统待办同步（sync_oa_todos.sh）、OA系统待办审批（fdId）（approve_oa_todo_by_fdId.sh）。使用state save/load实现登录复用，性能提升50%以上。
 ---
 
 # OA审批系统自动化
@@ -22,7 +22,7 @@ description: 新国都集团OA费控系统审批自动化工具。**必须使用
 |-----------|------------|------|
 | **查看OA系统待办** | `query_oa_todo.sh` | `./scripts/query_oa_todo.sh` |
 | **审批OA系统待办（序号）** | `approve_oa_todo.sh` | `./scripts/approve_oa_todo.sh 1 参加` |
-| **审批OA系统待办（标题）** | `approve_oa_todo_by_title.sh` | `./scripts/approve_oa_todo_by_title.sh "报销" 通过` |
+| **审批OA系统待办（fdId）** | `approve_oa_todo_by_fdId.sh` | `./scripts/approve_oa_todo_by_fdId.sh abc123def456 参加` |
 | **同步所有待办详情** | `sync_oa_todos.sh` | `./scripts/sync_oa_todos.sh` |
 
 **⚠️ 重要**：
@@ -412,44 +412,52 @@ AGENT_BROWSER_HEADED=1 ./scripts/sync_oa_todos.sh 2
 - ✅ 复用登录状态，性能优化
 - ✅ 生成索引和汇总报告
 
-### approve_oa_todo_by_title.sh - 通过标题检索并审批
+### approve_oa_todo_by_fdId.sh - 通过fdId精确审批
 
-**用途**：通过标题关键词搜索待办，审批第一个匹配的待办
+**用途**：通过fdId精确定位并审批待办
 
 **使用**：
 ```bash
 # 会议安排类
-./scripts/approve_oa_todo_by_title.sh "QuickBi" 参加
-./scripts/approve_oa_todo_by_title.sh "阿里云" 不参加 "已有其他安排"
+./scripts/approve_oa_todo_by_fdId.sh 19bba01cb5a30a6668fdc15413daa5da 参加
+./scripts/approve_oa_todo_by_fdId.sh 19bba01cb5a30a6668fdc15413daa5da 不参加 "已有其他安排"
 
 # 流程管理类
-./scripts/approve_oa_todo_by_title.sh "报销申请" 通过 "同意"
-./scripts/approve_oa_todo_by_title.sh "请假" 驳回 "信息不完整"
+./scripts/approve_oa_todo_by_fdId.sh 196a8d090affec19889720144edb5c5f 通过 "同意"
+./scripts/approve_oa_todo_by_fdId.sh 196a8d090affec19889720144edb5c5f 驳回 "信息不完整"
 
 # 可视化调试
-AGENT_BROWSER_HEADED=1 ./scripts/approve_oa_todo_by_title.sh "QuickBi" 参加
+AGENT_BROWSER_HEADED=1 ./scripts/approve_oa_todo_by_fdId.sh 19bba01cb5a30a6668fdc15413daa5da 参加
 ```
 
 **参数**：
-- `<标题关键词>`: 待办标题的搜索关键词（支持模糊匹配）
+- `<fdId>`: 待办唯一标识符（从 `/tmp/oa_todos/index.txt` 获取）
 - `<审批动作>`: 审批动作（参加/不参加/通过/驳回/转办）
 - `[处理意见]`: 可选，建议填写
 - `[转办人员]`: 转办时必需
 
+**获取fdId**：
+```bash
+# 查看索引文件
+cat /tmp/oa_todos/index.txt
+
+# 或执行同步脚本
+./scripts/sync_oa_todos.sh
+```
+
 **工作流程**：
-1. 从索引文件 `/tmp/oa_todos/index.txt` 中搜索匹配的待办
-2. 显示所有匹配的待办列表
-3. 选择第一个匹配的待办
-4. 使用fdId从索引中获取详情链接
-5. 直接打开详情页面执行审批
-6. 自动检测待办类型并执行相应操作
+1. 从索引文件 `/tmp/oa_todos/index.txt` 中精确查找fdId
+2. 显示找到的待办信息
+3. 使用fdId从索引中获取详情链接
+4. 直接打开详情页面执行审批
+5. 自动检测待办类型并执行相应操作
+6. 审批成功后更新索引文件
 
 **特点**：
-- ✅ 通过标题关键词快速定位待办
-- ✅ 支持模糊匹配
-- ✅ 显示所有匹配结果供参考
-- ✅ 自动选择第一个匹配的待办
-- ✅ 直接打开详情页面，无需在列表中查找
+- ✅ 通过fdId精确定位，避免同名待办混淆
+- ✅ 直接从索引获取详情链接，无需列表查找
+- ✅ 审批成功后自动更新索引文件
+- ✅ 支持同名待办，每次处理一个
 - ✅ 复用登录状态，性能优化
 - ✅ 一个审批一个session，互不干扰
 
@@ -539,6 +547,24 @@ cat /tmp/oa_approve_FK20250101001.log
 ---
 
 ## 更新日志
+
+### v2.4.0 - 2025-03-18
+
+**新增功能**:
+- ✨ 新增 approve_oa_todo_by_fdId.sh 脚本
+- 🔑 通过fdId精确定位待办
+- ⚡ 直接从索引获取详情链接
+- 🔄 审批成功后自动更新索引文件
+
+**优化改进**:
+- 🎯 避免同名待办混淆
+- 📊 提升审批准确性和效率
+- 🧪 测试通过，支持会议和流程两种类型
+
+**使用场景**:
+- 通过fdId精确审批同名待办
+- 批量审批特定待办
+- 配合脚本实现自动化流程
 
 ### v2.3.0 - 2025-03-18
 

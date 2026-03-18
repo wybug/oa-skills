@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# OA系统待办审批脚本（通过标题检索）- 支持会议安排和流程管理两种类型
-# 功能：通过标题搜索待办 -> 打开第一个匹配的待办 -> 执行审批
-# 用法: 
-#   会议安排: ./scripts/approve_oa_todo_by_title.sh <标题关键词> <参加|不参加> [留言]
-#   流程管理: ./scripts/approve_oa_todo_by_title.sh <标题关键词> <通过|驳回|转办> [处理意见] [转办人员]
+# OA系统待办审批脚本（通过fdId精确检索）- 支持会议安排和流程管理两种类型
+# 功能：通过fdId直接查找待办 -> 打开待办详情 -> 执行审批
+# 用法:
+#   会议安排: ./scripts/approve_oa_todo_by_fdId.sh <fdId> <参加|不参加> [留言]
+#   流程管理: ./scripts/approve_oa_todo_by_fdId.sh <fdId> <通过|驳回|转办> [处理意见] [转办人员]
 set -e
 
 # 设置时区为北京/上海时间
@@ -19,30 +19,41 @@ if ! "$SCRIPT_DIR/check_dependencies.sh"; then
 fi
 
 # 参数处理
-TITLE_KEYWORD="$1"
+FDID="$1"
 ACTION="$2"
 COMMENT="${3:-}"
 TRANSFER_USER="${4:-}"
 
-if [ -z "$TITLE_KEYWORD" ]; then
-    echo "❌ 错误: 缺少标题关键词参数"
+if [ -z "$FDID" ]; then
+    echo "❌ 错误: 缺少fdId参数"
     echo ""
     echo "用法:"
     echo "  会议安排类:"
-    echo "    ./scripts/approve_oa_todo_by_title.sh <标题关键词> <参加|不参加> [留言]"
+    echo "    ./scripts/approve_oa_todo_by_fdId.sh <fdId> <参加|不参加> [留言]"
     echo ""
     echo "  流程管理类:"
-    echo "    ./scripts/approve_oa_todo_by_title.sh <标题关键词> <通过|驳回|转办> [处理意见] [转办人员]"
+    echo "    ./scripts/approve_oa_todo_by_fdId.sh <fdId> <通过|驳回|转办> [处理意见] [转办人员]"
+    echo ""
+    echo "参数说明:"
+    echo "  fdId    - 待办唯一标识符（从 /tmp/oa_todos/index.txt 获取）"
+    echo "  动作    - 会议安排: 参加 | 不参加"
+    echo "           流程管理: 通过 | 驳回 | 转办"
+    echo "  留言/意见 - 可选的处理意见或留言"
+    echo "  转办人员 - 转办时必须提供目标人员姓名"
     echo ""
     echo "示例:"
     echo "  # 会议安排"
-    echo "  ./scripts/approve_oa_todo_by_title.sh \"QuickBi会议\" 参加"
-    echo "  ./scripts/approve_oa_todo_by_title.sh \"阿里云\" 不参加 \"已有其他安排\""
+    echo "  ./scripts/approve_oa_todo_by_fdId.sh \"abc123def456\" 参加"
+    echo "  ./scripts/approve_oa_todo_by_fdId.sh \"abc123def456\" 不参加 \"已有其他安排\""
     echo ""
     echo "  # 流程管理"
-    echo "  ./scripts/approve_oa_todo_by_title.sh \"报销申请\" 通过 \"同意\""
-    echo "  ./scripts/approve_oa_todo_by_title.sh \"请假\" 驳回 \"信息不完整\""
-    echo "  ./scripts/approve_oa_todo_by_title.sh \"采购\" 转办 \"请XX处理\" \"张三\""
+    echo "  ./scripts/approve_oa_todo_by_fdId.sh \"xyz789ghi012\" 通过 \"同意\""
+    echo "  ./scripts/approve_oa_todo_by_fdId.sh \"xyz789ghi012\" 驳回 \"信息不完整\""
+    echo "  ./scripts/approve_oa_todo_by_fdId.sh \"xyz789ghi012\" 转办 \"请XX处理\" \"张三\""
+    echo ""
+    echo "获取fdId:"
+    echo "  cat /tmp/oa_todos/index.txt"
+    echo "  ./scripts/sync_oa_todos.sh"
     exit 1
 fi
 
@@ -70,10 +81,10 @@ if [[ "$ACTION" == "转办" && -z "$TRANSFER_USER" ]]; then
     echo "❌ 错误: 转办操作需要提供转办人员"
     echo ""
     echo "用法:"
-    echo "  ./scripts/approve_oa_todo_by_title.sh <标题关键词> 转办 <处理意见> <转办人员>"
+    echo "  ./scripts/approve_oa_todo_by_fdId.sh <fdId> 转办 <处理意见> <转办人员>"
     echo ""
     echo "示例:"
-    echo "  ./scripts/approve_oa_todo_by_title.sh \"采购\" 转办 \"请XX处理\" \"张三\""
+    echo "  ./scripts/approve_oa_todo_by_fdId.sh \"abc123def456\" 转办 \"请XX处理\" \"张三\""
     exit 1
 fi
 
@@ -94,9 +105,9 @@ if [ ! -f "$INDEX_FILE" ]; then
 fi
 
 echo "========================================"
-echo "  OA系统待办审批（通过标题检索）"
+echo "  OA系统待办审批（通过fdId精确检索）"
 echo "========================================"
-echo "搜索关键词: $TITLE_KEYWORD"
+echo "fdId: $FDID"
 echo "审批动作: $ACTION"
 if [[ "$ACTION" == "转办" ]]; then
     echo "转办人员: $TRANSFER_USER"
@@ -106,38 +117,36 @@ echo "索引文件: $INDEX_FILE"
 echo "========================================"
 echo ""
 
-# 从索引文件中搜索匹配的待办
-echo "🔍 搜索匹配的待办..."
+# 从索引文件中精确查找匹配的待办（fdId唯一）
+echo "🔍 查找待办..."
 
-MATCHED_TODOS=$(grep -i "$TITLE_KEYWORD" "$INDEX_FILE" 2>/dev/null || true)
+MATCHED_LINE=$(grep "^${FDID}|" "$INDEX_FILE" 2>/dev/null || true)
 
-if [ -z "$MATCHED_TODOS" ]; then
-    echo "❌ 未找到匹配的待办"
+if [ -z "$MATCHED_LINE" ]; then
+    echo "❌ 未找到 fdId 为 $FDID 的待办"
     echo ""
-    echo "搜索关键词: $TITLE_KEYWORD"
-    echo "索引文件: $INDEX_FILE"
+    echo "请检查fdId是否正确"
     echo ""
-    echo "请检查关键词是否正确，或先执行同步脚本更新索引:"
+    echo "可用的待办列表 (前10条):"
+    echo ""
+    head -10 "$INDEX_FILE" | while IFS='|' read -r fdid title href; do
+        echo "  [$fdid] ${title:0:60}"
+    done
+    echo ""
+    echo "完整列表请查看:"
+    echo "  cat /tmp/oa_todos/index.txt"
+    echo ""
+    echo "或重新同步:"
     echo "  ./scripts/sync_oa_todos.sh"
     exit 1
 fi
 
-# 显示所有匹配的待办
-MATCH_COUNT=$(echo "$MATCHED_TODOS" | wc -l | tr -d ' ')
-echo "找到 $MATCH_COUNT 个匹配的待办:"
-echo ""
-echo "$MATCHED_TODOS" | while IFS='|' read -r fdid title href; do
-    echo "  [$fdid] ${title:0:60}"
-done
-echo ""
+# 解析匹配的行（fdId唯一，只有一行）
+FDID=$(echo "$MATCHED_LINE" | cut -d'|' -f1)
+TITLE=$(echo "$MATCHED_LINE" | cut -d'|' -f2)
+HREF=$(echo "$MATCHED_LINE" | cut -d'|' -f3)
 
-# 选择第一个匹配的待办
-FIRST_MATCH=$(echo "$MATCHED_TODOS" | head -1)
-FDID=$(echo "$FIRST_MATCH" | cut -d'|' -f1)
-TITLE=$(echo "$FIRST_MATCH" | cut -d'|' -f2)
-HREF=$(echo "$FIRST_MATCH" | cut -d'|' -f3)
-
-echo "✅ 选择第一个匹配的待办:"
+echo "✅ 找到待办:"
 echo "   fdId: $FDID"
 echo "   标题: ${TITLE:0:60}"
 echo ""
@@ -160,7 +169,7 @@ fi
 AGENT_BROWSER="npx agent-browser"
 OA_URL="https://oa.xgd.com"
 STATE_FILE="${OA_STATE_FILE:-/tmp/oa_login_state.json}"
-SESSION_NAME="oa-approve-title-$(date +%s%N)"
+SESSION_NAME="oa-approve-fdid-$(date +%s%N)"
 LOGIN_TIMEOUT_MINUTES=${LOGIN_TIMEOUT_MINUTES:-10}
 
 # ============================================
@@ -275,8 +284,8 @@ $AGENT_BROWSER --session "$SESSION_NAME" wait --load networkidle
 
 # 保存截图用于调试
 echo "📷 保存页面截图..."
-$AGENT_BROWSER --session "$SESSION_NAME" screenshot /tmp/oa_todo_detail_by_title.png
-echo "✅ 截图已保存: /tmp/oa_todo_detail_by_title.png"
+$AGENT_BROWSER --session "$SESSION_NAME" screenshot /tmp/oa_todo_detail_by_fdid.png
+echo "✅ 截图已保存: /tmp/oa_todo_detail_by_fdid.png"
 
 # ============================================
 # 步骤4: 检测待办类型（会议安排 or 流程管理）
@@ -329,44 +338,44 @@ if [[ "$TODO_TYPE" == *"meeting"* ]]; then
     echo "📅 检测到会议安排类型"
     echo ""
     echo "📋 步骤5: 处理会议安排..."
-    
+
     # 步骤5.1: 选择参加/不参加
     echo "   选择: $ACTION"
-    
+
     SELECT_RESULT=$($AGENT_BROWSER --session "$SESSION_NAME" eval --stdin <<EOF
 (() => {
   const action = "$ACTION";
-  
+
   // 查找参加/不参加的单选按钮或复选框
   const allInputs = document.querySelectorAll('input[type="radio"], input[type="checkbox"]');
   const targetInput = Array.from(allInputs).find(input => {
     const label = input.closest('label') || document.querySelector('label[for="' + input.id + '"]');
     const labelText = label ? label.textContent.trim() : '';
     const value = input.value || '';
-    
+
     return (action === '参加' && (labelText.includes('参加') || value.includes('参加'))) ||
            (action === '不参加' && (labelText.includes('不参加') || value.includes('不参加')));
   });
-  
+
   if (targetInput) {
     targetInput.click();
     console.log('已选择:', action);
     return { success: true, action: action };
   }
-  
+
   return { success: false };
 })()
 EOF
 )
-    
+
     if [[ "$SELECT_RESULT" != *"success\": true"* ]]; then
         echo "❌ 未找到'$ACTION'选项"
         $AGENT_BROWSER --session "$SESSION_NAME" close
         exit 1
     fi
-    
+
     echo "✅ 已选择'$ACTION'"
-    
+
     # 步骤5.2: 填写留言（如果有）
     if [ -n "$COMMENT" ]; then
         echo ""
@@ -375,14 +384,14 @@ EOF
         COMMENT_RESULT=$($AGENT_BROWSER --session "$SESSION_NAME" eval --stdin <<EOF
 (() => {
   const comment = "$COMMENT";
-  
+
   // 查找留言框（可能是textarea或input[type="text"]）
   const textareas = Array.from(document.querySelectorAll('textarea'));
   const textInputs = Array.from(document.querySelectorAll('input[type="text"]'));
-  
+
   // 优先查找"留言"相关的输入框
   let commentField = null;
-  
+
   // 查找所有输入框，通过标签文本匹配
   const allLabels = Array.from(document.querySelectorAll('label, td'));
   for (let label of allLabels) {
@@ -395,35 +404,35 @@ EOF
         const input = parent.querySelector('input[type="text"]');
         const nextSibling = parent.nextElementSibling?.querySelector('textarea') ||
                           parent.nextElementSibling?.querySelector('input[type="text"]');
-        
+
         commentField = textarea || input || nextSibling;
         if (commentField) break;
       }
     }
   }
-  
+
   // 如果没找到，使用第一个textarea或text input
   if (!commentField) {
     commentField = textareas[0] || textInputs[0];
   }
-  
+
   if (commentField) {
     // 清空原有内容
     commentField.value = comment;
-    
+
     // 触发多个事件确保输入生效
     commentField.dispatchEvent(new Event('input', { bubbles: true }));
     commentField.dispatchEvent(new Event('change', { bubbles: true }));
     commentField.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
     commentField.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
-    
+
     // 失去焦点
     commentField.blur();
-    
+
     console.log('已填写留言:', comment, '字段类型:', commentField.tagName);
     return { success: true, tagName: commentField.tagName };
   }
-  
+
   return { success: false };
 })()
 EOF
@@ -435,7 +444,7 @@ EOF
             echo "⚠️  未找到留言输入框，跳过留言填写"
         fi
     fi
-    
+
     # 步骤5.3: 提交
     echo ""
     echo "📋 步骤7: 提交会议安排..."
@@ -444,7 +453,7 @@ EOF
 (() => {
   // 优先查找 .lui_toolbar_btn_l 类的DIV元素（OA系统常用提交按钮）
   let submitBtn = document.querySelector('.lui_toolbar_btn_l');
-  
+
   // 如果没找到，查找其他可能的提交按钮
   if (!submitBtn) {
     const allElements = document.querySelectorAll('div, button, input[type="submit"], input[type="button"], a');
@@ -458,13 +467,13 @@ EOF
              !className.includes('disabled'); // 未禁用
     });
   }
-  
+
   if (submitBtn) {
     submitBtn.click();
     console.log('已点击提交按钮，元素类型:', submitBtn.tagName);
     return { success: true, tagName: submitBtn.tagName, className: submitBtn.className };
   }
-  
+
   return { success: false };
 })()
 EOF
@@ -484,7 +493,7 @@ elif [[ "$TODO_TYPE" == *"workflow"* ]]; then
     echo "📋 检测到流程管理类型"
     echo ""
     echo "📋 步骤8: 滚动到页面底部..."
-    
+
     # 滚动到底部
     $AGENT_BROWSER --session "$SESSION_NAME" eval --stdin <<'EOF'
 (() => {
@@ -492,10 +501,10 @@ elif [[ "$TODO_TYPE" == *"workflow"* ]]; then
   return { scrolled: true };
 })()
 EOF
-    
+
     sleep 2
     echo "✅ 已滚动到底部"
-    
+
     # 步骤8.1: 点击审批按钮（单选按钮）
     echo ""
     echo "📋 步骤9: 选择'$ACTION'..."
@@ -541,7 +550,7 @@ EOF
     fi
 
     echo "✅ 已选择'$ACTION'"
-    
+
     # 步骤8.2: 填写处理意见（如果有）
     if [ -n "$COMMENT" ]; then
         echo ""
@@ -550,14 +559,14 @@ EOF
         COMMENT_RESULT=$($AGENT_BROWSER --session "$SESSION_NAME" eval --stdin <<EOF
 (() => {
   const comment = "$COMMENT";
-  
+
   // 查找处理意见输入框
   const textareas = Array.from(document.querySelectorAll('textarea'));
   const textInputs = Array.from(document.querySelectorAll('input[type="text"]'));
-  
+
   // 优先查找"意见"相关的输入框
   let commentField = null;
-  
+
   const allLabels = Array.from(document.querySelectorAll('label, td'));
   for (let label of allLabels) {
     const labelText = label.textContent.trim();
@@ -568,27 +577,27 @@ EOF
         const input = parent.querySelector('input[type="text"]');
         const nextSibling = parent.nextElementSibling?.querySelector('textarea') ||
                           parent.nextElementSibling?.querySelector('input[type="text"]');
-        
+
         commentField = textarea || input || nextSibling;
         if (commentField) break;
       }
     }
   }
-  
+
   if (!commentField) {
     commentField = textareas[0] || textInputs[0];
   }
-  
+
   if (commentField) {
     commentField.value = comment;
     commentField.dispatchEvent(new Event('input', { bubbles: true }));
     commentField.dispatchEvent(new Event('change', { bubbles: true }));
     commentField.blur();
-    
+
     console.log('已填写处理意见:', comment);
     return { success: true };
   }
-  
+
   return { success: false };
 })()
 EOF
@@ -600,7 +609,7 @@ EOF
             echo "⚠️  未找到处理意见输入框，跳过填写"
         fi
     fi
-    
+
     # 步骤8.3: 处理驳回逻辑
     if [[ "$ACTION" == "驳回" ]]; then
         echo ""
@@ -608,18 +617,18 @@ EOF
         sleep 2
         echo "ℹ️  默认打回上一节点"
     fi
-    
+
     # 步骤8.4: 处理转办逻辑
     if [[ "$ACTION" == "转办" ]]; then
         echo ""
         echo "📋 步骤12: 选择转办人员..."
         sleep 2
-        
+
         # TODO: 实现人员选择逻辑
         echo "⚠️  转办人员选择功能待完善"
         echo "   当前仅支持填写人员姓名: $TRANSFER_USER"
     fi
-    
+
     # 步骤8.5: 提交
     echo ""
     echo "📋 步骤13: 提交审批..."
@@ -630,7 +639,7 @@ EOF
 (() => {
   // 查找提交按钮
   let submitBtn = null;
-  
+
   // 优先查找包含"提交"的按钮
   const allButtons = document.querySelectorAll('button, input[type="button"], input[type="submit"], a');
   submitBtn = Array.from(allButtons).find(btn => {
@@ -639,13 +648,13 @@ EOF
     return text === '提交' || value === '提交' ||
            text === '确定' || value === '确定';
   });
-  
+
   if (submitBtn) {
     submitBtn.click();
     console.log('已点击提交按钮:', submitBtn.textContent.trim());
     return { success: true };
   }
-  
+
   return { success: false };
 })()
 EOF
@@ -673,6 +682,7 @@ echo ""
 echo "========================================"
 echo "  ✅ 审批完成"
 echo "========================================"
+echo "fdId: $FDID"
 echo "待办标题: ${TITLE:0:60}"
 echo "审批动作: $ACTION"
 echo "处理意见: ${COMMENT:-无}"
