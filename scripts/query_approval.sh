@@ -13,6 +13,7 @@ if ! "$SCRIPT_DIR/check_dependencies.sh"; then
 fi
 
 AGENT_BROWSER="npx agent-browser"
+FEIKONG_SSO_URL="https://sso-oa.xgd.com/sso/login?service=https://ekuaibao.xgd.com:9080/ykb/single/sso?type=login"
 STATE_FILE="${OA_STATE_FILE:-/tmp/oa_login_state.json}"
 SESSION_NAME="oa-query-$(date +%s%N)"
 LOGIN_TIMEOUT_MINUTES=${LOGIN_TIMEOUT_MINUTES:-10}
@@ -123,9 +124,9 @@ fi
 echo ""
 
 # ============================================
-# 步骤2: 加载登录状态并进入费控系统
+# 步骤2: 加载登录状态
 # ============================================
-echo "🚀 步骤2: 加载登录状态..."
+echo "🔄 步骤2: 加载登录状态..."
 
 # 关闭之前的会话
 $AGENT_BROWSER --session "$SESSION_NAME" close 2>/dev/null || true
@@ -137,19 +138,19 @@ $AGENT_BROWSER --session "$SESSION_NAME" state load "$STATE_FILE"
 echo "✅ 登录状态已加载"
 
 echo ""
-echo "📋 步骤3: 进入费控系统..."
+echo "🚀 步骤3: 打开费控系统..."
 
-# 直接打开费控系统URL（从登录后的OA首页）
-$AGENT_BROWSER --session "$SESSION_NAME" open "https://oa.xgd.com"
-sleep 3
+# 直接打开费控系统 SSO URL（优化：无需通过OA系统点击）
+$AGENT_BROWSER --session "$SESSION_NAME" open "$FEIKONG_SSO_URL"
+sleep 5
 $AGENT_BROWSER --session "$SESSION_NAME" wait --load networkidle
 
-# 检查是否在OA系统
+# 检查是否成功进入费控系统
 CURRENT_URL=$($AGENT_BROWSER --session "$SESSION_NAME" get url)
 echo "📍 当前URL: $CURRENT_URL"
 
-if [[ "$CURRENT_URL" != *"oa.xgd.com"* ]] && [[ "$CURRENT_URL" != *"sso-oa.xgd.com"* ]]; then
-    echo "❌ 未能进入OA系统，登录状态可能已失效"
+if [[ "$CURRENT_URL" != *"hosecloud.com"* ]] && [[ "$CURRENT_URL" != *"ekuaibao"* ]]; then
+    echo "❌ 未能进入费控系统，登录状态可能已过期"
     echo "💡 建议: 删除状态文件并重新登录"
     echo "   rm -f $STATE_FILE"
     echo "   ./scripts/login.sh"
@@ -157,94 +158,13 @@ if [[ "$CURRENT_URL" != *"oa.xgd.com"* ]] && [[ "$CURRENT_URL" != *"sso-oa.xgd.c
     exit 1
 fi
 
-echo "✅ 已进入OA系统"
+echo "✅ 已进入费控系统"
 
 # ============================================
-# 步骤4: 点击费控系统
-# ============================================
-echo ""
-echo "📋 步骤4: 点击费控系统..."
-
-# 设置window.open拦截器
-$AGENT_BROWSER --session "$SESSION_NAME" eval --stdin <<'EOF'
-(() => {
-  window.capturedUrls = [];
-  const originalOpen = window.open;
-  window.open = function(url, ...args) {
-    console.log('Intercepted window.open:', url);
-    window.capturedUrls.push(url);
-    return originalOpen.call(this, url, ...args);
-  };
-  return { interceptorInstalled: true };
-})()
-EOF
-
-# 查找并点击费控系统div
-CLICK_RESULT=$($AGENT_BROWSER --session "$SESSION_NAME" eval --stdin <<'EOF'
-(() => {
-  const allDivs = Array.from(document.querySelectorAll('div'));
-
-  const feikongDiv = allDivs.find(div => {
-    const text = div.textContent.trim();
-    return (text === '费控系统' || text === '费控') && div.children.length < 5;
-  });
-
-  if (feikongDiv) {
-    feikongDiv.click();
-    return {
-      success: true,
-      text: feikongDiv.textContent.trim()
-    };
-  }
-
-  return { success: false };
-})()
-EOF
-)
-
-if [[ "$CLICK_RESULT" != *"success\": true"* ]]; then
-    echo "❌ 未找到费控系统入口"
-    $AGENT_BROWSER --session "$SESSION_NAME" close
-    exit 1
-fi
-
-echo "✅ 已点击费控系统"
-
-# ============================================
-# 步骤5: 打开费控系统新标签页
+# 步骤4: 点击待办
 # ============================================
 echo ""
-echo "⏳ 步骤5: 等待费控系统加载..."
-sleep 2
-
-# 获取拦截到的URL
-CAPTURED_URL=$($AGENT_BROWSER --session "$SESSION_NAME" eval --stdin <<'EOF'
-(() => {
-  const urls = window.capturedUrls || [];
-  return urls.length > 0 ? urls[0] : null;
-})()
-EOF
-)
-
-FEIKONG_URL=$(echo "$CAPTURED_URL" | grep -o 'https://[^"]*' || echo "")
-
-if [ -n "$FEIKONG_URL" ]; then
-    echo "✅ 获取到费控系统URL"
-    $AGENT_BROWSER --session "$SESSION_NAME" tab new "$FEIKONG_URL"
-    sleep 5
-    $AGENT_BROWSER --session "$SESSION_NAME" wait --load networkidle
-else
-    echo "⚠️  未获取到URL，等待新标签页..."
-    sleep 8
-fi
-
-echo "📷 费控系统截图: /tmp/oa_feikong_page.png"
-
-# ============================================
-# 步骤6: 点击待办
-# ============================================
-echo ""
-echo "📋 步骤6: 点击待办..."
+echo "📋 步骤4: 点击待办..."
 
 CLICK_TODO=$($AGENT_BROWSER --session "$SESSION_NAME" eval --stdin <<'EOF'
 (() => {
@@ -273,10 +193,10 @@ sleep 3
 $AGENT_BROWSER --session "$SESSION_NAME" wait --load networkidle
 
 # ============================================
-# 步骤7: 获取待审批列表
+# 步骤5: 获取待审批列表
 # ============================================
 echo ""
-echo "📄 步骤7: 提取待审批列表..."
+echo "📄 步骤5: 提取待审批列表..."
 
 APPROVAL_INFO=$($AGENT_BROWSER --session "$SESSION_NAME" get text body)
 
