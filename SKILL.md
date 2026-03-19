@@ -1,9 +1,27 @@
 ---
 name: query-oa-approval
-description: 新国都集团OA费控系统审批自动化工具。**必须使用此技能当用户提到**：OA审批、费控审批、待办查询、OA待办、审批单据、同意单据、驳回单据、批量审批、费控系统、OA系统审批、查一下待办、批一下单子、处理OA待办、费控流程、审批流程、待审批列表、OA系统待办、我的待办、同步待办、导出待办、备份待办、通过fdId审批等任何与OA审批相关的操作。支持：费控系统查询（query_approval.sh）、费控系统审批（approve.sh）、批量审批（batch_approve.sh）、OA系统待办查询（query_oa_todo.sh）、OA系统待办审批（approve_oa_todo.sh）、OA系统待办同步（sync_oa_todos.sh）、OA系统待办审批（fdId）（approve_oa_todo_by_fdId.sh）。使用state save/load实现登录复用，性能提升50%以上。
+description: 新国都集团OA费控系统审批自动化工具。**必须使用此技能当用户提到**：OA审批、费控审批、待办查询、OA待办、审批单据、同意单据、驳回单据、批量审批、费控系统、OA系统审批、查一下待办、批一下单子、处理OA待办、费控流程、审批流程、待审批列表、OA系统待办、我的待办、同步待办、导出待办、备份待办、通过fdId审批等任何与OA审批相关的操作。支持：费控系统查询（query_approval.sh）、费控系统审批（approve.sh）、批量审批（batch_approve.sh）、OA系统待办查询（query_oa_todo.sh）、OA系统待办审批（approve_oa_todo.sh）、OA系统待办同步（sync_oa_todos.sh）、OA系统待办审批（fdId）（approve_oa_todo_by_fdId.sh）。使用state save/load实现登录复用，性能提升50%以上。**新版CLI工具（oa-todo）使用SQLite数据库和文件方式解决JSON截断问题，支持部分fdId查询和状态管理。**
 ---
 
 # OA审批系统自动化
+
+## 🎉 新特性（2026-03-19）
+
+### 使用文件方式解决JSON截断问题
+- **问题**: `browser.eval()` 返回大量JSON数据时被截断
+- **解决方案**: 使用 `evalWithFile` 方法
+  1. 在浏览器中执行JS，将结果存储在页面DOM元素中
+  2. 使用 `snapshot` 获取完整页面内容（不会截断）
+  3. 从snapshot中提取JSON结果
+- **效果**: 完美解决JSON截断问题，可以处理任意大小的数据
+
+### 支持部分fdId查询
+- 使用 `getTodoByPrefix` 方法
+- 示例: `oa-todo show 19bba01c` 可以匹配 `19bba01cb5a30a6668fdc15413daa5da`
+
+### 新增状态管理命令
+- `oa-todo update <fdId> <status>` - 更新待办状态
+- 支持8种状态：skip/pending/approved/rejected/transferred/attended/not_attended/other
 
 ## 🚀 新版 CLI 工具（推荐）
 
@@ -81,7 +99,24 @@ oa-todo show <fdId>
 oa-todo show <fdId> --refresh
 ```
 
-#### 4. 审批待办
+#### 4. 更新状态
+
+```bash
+# 更新待办状态
+oa-todo update <fdId> skip --comment "跳过处理"
+oa-todo update <fdId> pending
+oa-todo update <fdId> approved
+oa-todo update <fdId> rejected
+oa-todo update <fdId> transferred
+oa-todo update <fdId> attended
+oa-todo update <fdId> not_attended
+oa-todo update <fdId> other
+
+# 支持部分fdId
+oa-todo update 19bba01c skip --comment "测试"
+```
+
+#### 5. 审批待办
 
 ```bash
 # 会议类
@@ -97,7 +132,7 @@ oa-todo approve <fdId> 转办
 oa-todo approve <fdId> 通过 --comment "同意"
 ```
 
-#### 5. 查看统计
+#### 6. 查看统计
 
 ```bash
 # 总体统计
