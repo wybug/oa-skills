@@ -1,5 +1,6 @@
 /**
  * sync 命令 - 同步待办列表
+ * 参考 scripts/sync_oa_todos.sh 实现
  */
 
 const chalk = require('chalk');
@@ -9,6 +10,72 @@ const path = require('path');
 const Database = require('../lib/database');
 const Browser = require('../lib/browser');
 const { detectTodoType, parseTitle } = require('../lib/detector');
+
+// JavaScript 代码：获取待办列表
+const getTodosScript = `
+(() => {
+  const todos = [];
+  
+  // 查找所有待办行
+  const rows = Array.from(document.querySelectorAll('table tbody tr, table tr')).filter(row => {
+    if (row.querySelector('th')) return false;
+    const text = row.textContent.trim();
+    if (row.querySelectorAll('input[type="checkbox"]').length > 0 && 
+        row.querySelectorAll('.lui_paging_t_notpre, .lui_paging_t_hasnext, .lui_paging_t_refresh').length >= 2) {
+      return false;
+    }
+    if (/^\\s*\\d+\\s*\\/\\s*\\d+\\s*$/.test(text)) return false;
+    if (/批量打开/.test(text)) return false;
+    const dataHrefLink = row.querySelector('a[data-href]');
+    if (!dataHrefLink) return false;
+    return text.length > 0;
+  });
+  
+  rows.forEach((row, index) => {
+    const allLinks = Array.from(row.querySelectorAll('a'));
+    const titleLink = allLinks.find(link => {
+      const dataHref = link.getAttribute('data-href');
+      return dataHref && dataHref.startsWith('/sys/notify/');
+    });
+    
+    if (titleLink) {
+      const dataHref = titleLink.getAttribute('data-href') || titleLink.dataset.href;
+      const fdIdMatch = dataHref.match(/fdId=([a-f0-9]+)/i);
+      const fdId = fdIdMatch ? fdIdMatch[1] : null;
+      
+      todos.push({
+        index: index + 1,
+        title: titleLink.textContent.trim(),
+        href: dataHref,
+        fdId: fdId,
+        cells: Array.from(row.querySelectorAll('td')).map(cell => cell.textContent.trim())
+      });
+    }
+  });
+  
+  const hasNextButton = document.querySelector('.lui_paging_t_hasnext:not(.lui_paging_t_hasnext_n)');
+  const hasNext = hasNextButton && hasNextButton.offsetParent !== null;
+  
+  return JSON.stringify({
+    success: true,
+    todos: todos,
+    count: todos.length,
+    hasNext: hasNext
+  });
+})()
+`;
+
+// JavaScript 代码：点击下一页
+const clickNextScript = `
+(() => {
+  const nextBtn = document.querySelector('.lui_paging_t_hasnext:not(.lui_paging_t_hasnext_n)');
+  if (nextBtn && nextBtn.offsetParent !== null) {
+    nextBtn.click();
+    return JSON.stringify({ success: true });
+  }
+  return JSON.stringify({ success: false });
+})()
+`;
 
 async function sync(options) {
   const spinner = ora('正在同步待办...').start();
@@ -46,79 +113,129 @@ async function sync(options) {
     await browser.loadState();
     spinner.succeed('登录状态已加载');
     
-    // 获取待办列表
+    // 打开OA系统
+    spinner.start('打开OA系统...');
+    await browser.open('https://oa.xgd.com');
+    spinner.succeed('已进入OA系统');
+    
+    // 打开待办页面
+    spinner.start('打开待办页面...');
+    const todoUrl = 'https://oa.xgd.com/xgd/reviewperson/person_todo/todo.jsp?fdModelName=&nodeType=node&&dataType=todo&s_path=%E6%90%9C%E7%B4%E2%E7%B1%BB%E3%80%80%3E%E3%80%80%E6%89%80%E5%BE%8C%E5%8A%E5%8A%9C%E7%A1%80%E6%90%9C%E7%B4%E3%80%80%3E%E3%80%80%E6%89%80%E5%BE%8C%E5%8A%E5%8A%9C%E7%A1&s_css=default';
+    await browser.open(todoUrl);
+    
+    // 等待页面加载
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    await browser.waitForLoad();
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    spinner.succeed('已打开待办页面');
+    
+    // 翻页获取所有待办
     spinner.start('正在获取待办列表...');
     
-    let syncedCount = 0;
+    let totalCount = 0;
     let newCount = 0;
     let updateCount = 0;
-    let detailCount = 0;
-    let page = 1;
+    let pageNum = 1;
     let hasMore = true;
     
     while (hasMore) {
-      if (options.limit > 0 && syncedCount >= options.limit) {
+      if (options.limit > 0 && totalCount >= options.limit) {
+        spinner.info(`已达到限制数量 (${options.limit})`);
         break;
       }
       
-      spinner.text = `正在获取第 ${page} 页待办... (已同步 ${syncedCount} 条)`;
+      spinner.text = `正在获取第 ${pageNum} 页... (已获取 ${totalCount} 条)`;
       
-      // 打开待办列表页面
-      const listUrl = `https://oa.xgd.com/sys/notify/sys_notify_todo/sysNotifyTodo.do?method=pagingQuery&page=${page}`;
-      await browser.open(listUrl);
+      // 获取待办列表（每页只获取标题和fdId）
+      const pageResult = await browser.eval(getTodosScript);
       
-      // 获取页面快照
-      const snapshot = await browser.snapshot();
+      // 解析结果
+      const result = JSON.parse(pageResult);
       
-      // 解析待办列表
-      const todos = parseTodoList(snapshot);
-      
-      if (todos.length === 0) {
-        hasMore = false;
+      if (!result.success) {
+        spinner.fail('获取待办列表失败');
         break;
       }
       
-      // 保存待办
-      for (const todo of todos) {
-        if (options.limit > 0 && syncedCount >= options.limit) {
+      console.log(chalk.gray(`   本页待办数: ${result.count}`));
+      
+      if (result.count === 0) {
+        spinner.info('没有更多待办');
+        break;
+      }
+      
+      // 保存待办（每页只保存标题和fdId）
+      for (const todo of result.todos) {
+        if (options.limit > 0 && totalCount >= options.limit) {
           break;
         }
         
+        if (!todo.fdId) {
+          console.log(chalk.yellow(`   ⚠️  无法提取fdId: ${todo.title.substring(0, 40)}...`));
+          continue;
+        }
+        
+        totalCount++;
+        
         const parsed = parseTitle(todo.title);
-        todo.todo_type = parsed.type;
-        todo.source_dept = parsed.sourceDept;
-        todo.submitter = parsed.submitter;
+        
+        const todoData = {
+          fd_id: todo.fdId,
+          title: todo.title,
+          href: todo.href,
+          todo_type: parsed.type,
+          source_dept: parsed.sourceDept,
+          submitter: parsed.submitter,
+          raw_data: todo
+        };
         
         // 检查是否已存在
-        const existing = await db.getTodo(todo.fd_id);
+        const existing = await db.getTodo(todo.fdId);
         
         if (existing) {
-          await db.upsertTodo(todo);
+          await db.upsertTodo(todoData);
           updateCount++;
+          console.log(chalk.gray(`   [${totalCount}] 更新: ${todo.fdId} ${todo.title.substring(0, 50)}...`));
         } else {
-          await db.upsertTodo(todo);
+          await db.upsertTodo(todoData);
           newCount++;
+          console.log(chalk.green(`   [${totalCount}] 新增: ${todo.fdId} ${todo.title.substring(0, 50)}...`));
         }
         
         // 获取详情（如果需要）
-        if (options.withDetail || options.force === todo.fd_id) {
-          const shouldFetchDetail = options.force === todo.fd_id || !isDetailComplete(options.config, todo.fd_id);
+        if (options.withDetail || options.force === todo.fdId) {
+          const shouldFetchDetail = options.force === todo.fdId || !isDetailComplete(options.config, todo.fdId);
           
           if (shouldFetchDetail) {
             spinner.text = `正在获取详情: ${todo.title.substring(0, 30)}...`;
-            await fetchTodoDetail(browser, db, options.config, todo);
-            detailCount++;
+            await fetchTodoDetail(browser, db, options.config, todoData);
           }
         }
-        
-        syncedCount++;
       }
       
-      page++;
+      // 检查是否继续翻页
+      if (result.hasNext) {
+        if (options.limit === 0 || totalCount < options.limit) {
+          console.log(chalk.gray('   翻到下一页...'));
+          
+          // 点击下一页按钮
+          await browser.eval(clickNextScript);
+          
+          pageNum++;
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          await browser.waitForLoad();
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        } else {
+          break;
+        }
+      } else {
+        console.log(chalk.gray('   ✅ 已到最后一页'));
+        break;
+      }
       
-      // 安全限制：最多10页
-      if (page > 10) {
-        spinner.warn('已达到最大页数限制（10页）');
+      // 安全限制：最多20页
+      if (pageNum > 20) {
+        spinner.warn('已达到最大页数限制（20页）');
         break;
       }
     }
@@ -130,12 +247,9 @@ async function sync(options) {
     
     // 显示统计
     console.log(chalk.bold('\n📊 同步统计:'));
-    console.log(`  总计: ${syncedCount} 条`);
+    console.log(`  总计: ${totalCount} 条`);
     console.log(`  新增: ${chalk.green(newCount)} 条`);
     console.log(`  更新: ${chalk.yellow(updateCount)} 条`);
-    if (detailCount > 0) {
-      console.log(`  详情: ${chalk.cyan(detailCount)} 条`);
-    }
     
     console.log(chalk.gray(`\n数据库: ${options.config.dbPath}`));
     
@@ -149,69 +263,6 @@ async function sync(options) {
     
     process.exit(1);
   }
-}
-
-/**
- * 从页面快照解析待办列表
- */
-function parseTodoList(snapshot) {
-  const todos = [];
-  
-  // 简单的文本解析（实际需要根据页面结构调整）
-  // 这里假设快照中包含 fdId、标题和链接
-  const lines = snapshot.split('\n');
-  const fdIdRegex = /fdId=([a-f0-9]+)/gi;
-  const hrefRegex = /href="([^"]*fdId=[a-f0-9]+[^"]*)"/gi;
-  
-  let currentFdId = null;
-  let currentTitle = null;
-  let currentHref = null;
-  
-  for (const line of lines) {
-    // 提取 fdId
-    const fdIdMatch = fdIdRegex.exec(line);
-    if (fdIdMatch) {
-      currentFdId = fdIdMatch[1];
-    }
-    
-    // 提取 href
-    const hrefMatch = hrefRegex.exec(line);
-    if (hrefMatch) {
-      currentHref = hrefMatch[1].replace(/&amp;/g, '&');
-    }
-    
-    // 提取标题（假设标题在特定标签后）
-    if (currentFdId && !currentTitle && line.trim() && !line.includes('fdId')) {
-      currentTitle = line.trim();
-      
-      // 如果标题看起来合理，保存待办
-      if (currentTitle && (currentTitle.includes('邀请') || currentTitle.includes('请审批'))) {
-        todos.push({
-          fd_id: currentFdId,
-          title: currentTitle,
-          href: currentHref || `/sys/notify/sys_notify_todo/sysNotifyTodo.do?method=view&fdId=${currentFdId}`,
-          raw_data: { title: currentTitle, fdId: currentFdId, href: currentHref }
-        });
-      }
-      
-      currentFdId = null;
-      currentTitle = null;
-      currentHref = null;
-    }
-  }
-  
-  // 去重
-  const uniqueTodos = [];
-  const seen = new Set();
-  
-  for (const todo of todos) {
-    if (!seen.has(todo.fd_id)) {
-      seen.add(todo.fd_id);
-      uniqueTodos.push(todo);
-    }
-  }
-  
-  return uniqueTodos;
 }
 
 /**
@@ -235,7 +286,8 @@ async function fetchTodoDetail(browser, db, config, todo) {
   }
   
   // 打开详情页面
-  await browser.fetchTodoDetail(todo.fd_id, todo.href);
+  const url = todo.href.startsWith('http') ? todo.href : `https://oa.xgd.com${todo.href}`;
+  await browser.open(url);
   
   // 保存快照
   const snapshot = await browser.snapshot();
