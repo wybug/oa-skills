@@ -10,6 +10,30 @@ This is an OA (Office Automation) approval system for 新国都集团 (XGD Group
 
 The system uses Bash scripts with `agent-browser` (a browser automation tool built on Playwright) to interact with web forms.
 
+## Node.js CLI Tool (oa-todo)
+
+The project includes a modern Node.js CLI tool located in the `oa-todo/` subdirectory:
+- **Entry point**: `oa-todo/bin/oa-todo.js`
+- **Source code**: `oa-todo/src/`
+- **Package config**: `oa-todo/package.json`
+
+**Installation**:
+```bash
+cd oa-todo
+npm install
+npm link  # Optional: install globally
+```
+
+**Usage**:
+```bash
+oa-todo sync      # Sync todos from OA system
+oa-todo list      # List todos
+oa-todo show <fdId>  # Show todo details
+oa-todo approve <fdId> <action>  # Approve todo
+```
+
+The CLI tool uses SQLite for data persistence and supports advanced features like status management, partial fdId matching, and file-based JSON extraction to avoid truncation issues.
+
 ## Environment Variables (Required)
 
 Configure these in CoPaw Environments:

@@ -28,7 +28,7 @@ description: 新国都集团OA费控系统审批自动化工具。**必须使用
 ### 安装
 
 ```bash
-cd /Users/wangyun/.copaw/active_skills/query-oa-approval
+cd /Users/wangyun/.copaw/active_skills/query-oa-approval/oa-todo
 npm install
 npm link  # 全局安装（可选）
 ```
