@@ -1,6 +1,5 @@
 /**
  * sync 命令 - 同步待办列表
- * 参考 scripts/sync_oa_todos.sh 实现
  */
 
 const chalk = require('chalk');
@@ -56,12 +55,12 @@ const getTodosScript = `
   const hasNextButton = document.querySelector('.lui_paging_t_hasnext:not(.lui_paging_t_hasnext_n)');
   const hasNext = hasNextButton && hasNextButton.offsetParent !== null;
   
-  return JSON.stringify({
+  return {
     success: true,
     todos: todos,
     count: todos.length,
     hasNext: hasNext
-  });
+  };
 })()
 `;
 
@@ -71,9 +70,9 @@ const clickNextScript = `
   const nextBtn = document.querySelector('.lui_paging_t_hasnext:not(.lui_paging_t_hasnext_n)');
   if (nextBtn && nextBtn.offsetParent !== null) {
     nextBtn.click();
-    return JSON.stringify({ success: true });
+    return { success: true, clicked: true };
   }
-  return JSON.stringify({ success: false });
+  return { success: false, clicked: false };
 })()
 `;
 
@@ -120,7 +119,7 @@ async function sync(options) {
     
     // 打开待办页面
     spinner.start('打开待办页面...');
-    const todoUrl = 'https://oa.xgd.com/xgd/reviewperson/person_todo/todo.jsp?fdModelName=&nodeType=node&&dataType=todo&s_path=%E6%90%9C%E7%B4%E2%E7%B1%BB%E3%80%80%3E%E3%80%80%E6%89%80%E5%BE%8C%E5%8A%E5%8A%9C%E7%A1%80%E6%90%9C%E7%B4%E3%80%80%3E%E3%80%80%E6%89%80%E5%BE%8C%E5%8A%E5%8A%9C%E7%A1&s_css=default';
+    const todoUrl = 'https://oa.xgd.com/xgd/reviewperson/person_todo/todo.jsp?fdModelName=&nodeType=node&&dataType=todo&s_path=%E6%90%9C%E7%B4%A2%E7%B1%BB%E3%80%80%3E%E3%80%80%E6%89%80%E6%9C%89%E5%8A%9E%E5%85%AC%E5%8F%B0%E6%90%9C%E7%B4%A2%E3%80%80%3E%E3%80%80%E6%89%80%E6%9C%89%E5%8A%9E%E5%85%AC%E5%8F%B0&s_css=default';
     await browser.open(todoUrl);
     
     // 等待页面加载
@@ -146,11 +145,8 @@ async function sync(options) {
       
       spinner.text = `正在获取第 ${pageNum} 页... (已获取 ${totalCount} 条)`;
       
-      // 获取待办列表（每页只获取标题和fdId）
-      const pageResult = await browser.eval(getTodosScript);
-      
-      // 解析结果
-      const result = JSON.parse(pageResult);
+      // 使用 evalWithFile 获取待办列表（避免JSON截断）
+      const result = await browser.evalWithFile(getTodosScript, `todos_page_${pageNum}`);
       
       if (!result.success) {
         spinner.fail('获取待办列表失败');
@@ -164,7 +160,7 @@ async function sync(options) {
         break;
       }
       
-      // 保存待办（每页只保存标题和fdId）
+      // 保存待办
       for (const todo of result.todos) {
         if (options.limit > 0 && totalCount >= options.limit) {
           break;
@@ -219,7 +215,7 @@ async function sync(options) {
           console.log(chalk.gray('   翻到下一页...'));
           
           // 点击下一页按钮
-          await browser.eval(clickNextScript);
+          await browser.evalWithFile(clickNextScript, `next_page_${pageNum}`);
           
           pageNum++;
           await new Promise(resolve => setTimeout(resolve, 3000));

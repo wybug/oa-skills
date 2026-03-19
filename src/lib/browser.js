@@ -4,6 +4,7 @@
 
 const { execSync, spawn } = require('child_process');
 const fs = require('fs');
+const path = require('path');
 
 class Browser {
   constructor(config) {
@@ -18,7 +19,7 @@ class Browser {
       return execSync(cmd, {
         encoding: 'utf-8',
         timeout: options.timeout || 60000,
-        maxBuffer: options.maxBuffer || 20 * 1024 * 1024  // 20MB buffer
+        maxBuffer: options.maxBuffer || 20 * 1024 * 1024
       });
     } catch (error) {
       if (error.stdout) return error.stdout;
@@ -62,46 +63,73 @@ class Browser {
     return await this.exec(`--session ${this.session} snapshot`);
   }
 
-  async eval(code) {
+  /**
+   * 执行JavaScript并通过文件返回结果（避免JSON截断）
+   * 方法：将结果存储在页面的隐藏元素中，通过snapshot读取
+   */
+  async evalWithFile(code, resultId = 'eval_result') {
+    // 1. 修改代码，将结果写入页面元素
+    const wrappedCode = `
+(() => {
+  try {
+    const result = ${code};
+    // 创建或更新结果元素
+    let elem = document.getElementById('${resultId}');
+    if (!elem) {
+      elem = document.createElement('div');
+      elem.id = '${resultId}';
+      elem.style.cssText = 'position:fixed;top:0;left:0;z-index:99999;background:white;padding:5px;border:1px solid black;font-family:monospace;font-size:12px;max-width:100%;word-wrap:break-word;';
+      document.body.appendChild(elem);
+    }
+    // 使用特殊标记包裹JSON结果
+    elem.textContent = '<<<START>>>' + JSON.stringify(result) + '<<<END>>>';
+    return 'EVAL_SUCCESS';
+  } catch (e) {
+    let elem = document.getElementById('${resultId}');
+    if (!elem) {
+      elem = document.createElement('div');
+      elem.id = '${resultId}';
+      elem.style.cssText = 'position:fixed;top:0;left:0;z-index:99999;background:white;padding:5px;border:1px solid red;';
+      document.body.appendChild(elem);
+    }
+    elem.textContent = '<<<ERROR>>>' + e.message;
+    return 'EVAL_ERROR';
+  }
+})()
+`;
+
+    // 2. 执行代码（结果会显示在页面上）
     const tempFile = `/tmp/browser_eval_${Date.now()}.js`;
-    fs.writeFileSync(tempFile, code, 'utf-8');
+    fs.writeFileSync(tempFile, wrappedCode, 'utf-8');
     
-    return new Promise((resolve, reject) => {
-      const child = spawn('sh', ['-c', `cat "${tempFile}" | ${this.agentBrowser} --session ${this.session} eval --stdin`], {
-        stdio: ['inherit', 'pipe', 'pipe']
-      });
-      
-      let stdout = '';
-      let stderr = '';
-      
-      child.stdout.on('data', (data) => {
-        stdout += data.toString();
-      });
-      
-      child.stderr.on('data', (data) => {
-        stderr += data.toString();
-      });
-      
-      child.on('close', (code) => {
-        // 清理临时文件
-        if (fs.existsSync(tempFile)) {
-          fs.unlinkSync(tempFile, () => {});
-        }
-        
-        if (code !== 0 && !stdout) {
-          reject(new Error(`eval failed with code ${code}: ${stderr}`));
-        } else {
-          resolve(stdout.trim());
-        }
-      });
-      
-      child.on('error', (error) => {
-        if (fs.existsSync(tempFile)) {
-          fs.unlinkSync(tempFile, () => {});
-        }
-        reject(error);
-      });
-    });
+    try {
+      await this.exec(`--session ${this.session} eval --stdin < "${tempFile}"`, { timeout: 10000 });
+    } catch (e) {
+      // 忽略执行错误，继续获取结果
+    } finally {
+      if (fs.existsSync(tempFile)) {
+        try { fs.unlinkSync(tempFile); } catch (e) {}
+      }
+    }
+
+    // 3. 等待一下让结果渲染
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // 4. 获取页面快照（这个不会截断）
+    const snapshot = await this.snapshot();
+
+    // 5. 从快照中提取结果
+    const match = snapshot.match(/<<<START>>>(.+?)<<<END>>>/s);
+    if (match) {
+      return JSON.parse(match[1]);
+    }
+
+    const errorMatch = snapshot.match(/<<<ERROR>>>(.+)/);
+    if (errorMatch) {
+      throw new Error(errorMatch[1]);
+    }
+
+    throw new Error('无法从页面中提取执行结果');
   }
 
   async click(selector) {

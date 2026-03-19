@@ -91,6 +91,16 @@ program
     await approve(fdId, action, { ...options, config });
   });
 
+// update 命令
+program
+  .command('update <fdId> <status>')
+  .description('更新待办状态')
+  .option('--comment <text>', '备注说明')
+  .action(async (fdId, status, options) => {
+    const update = require('../src/commands/update');
+    await update(fdId, status, { ...options, config });
+  });
+
 // status 命令
 program
   .command('status')
