@@ -1,855 +1,264 @@
 ---
 name: query-oa-approval
-description: 新国都集团OA费控系统审批自动化工具。**必须使用此技能当用户提到**：OA审批、费控审批、待办查询、OA待办、审批单据、同意单据、驳回单据、批量审批、费控系统、OA系统审批、查一下待办、批一下单子、处理OA待办、费控流程、审批流程、待审批列表、OA系统待办、我的待办、同步待办、导出待办、备份待办、通过fdId审批等任何与OA审批相关的操作。支持：费控系统查询（query_approval.sh）、费控系统审批（approve.sh）、批量审批（batch_approve.sh）、OA系统待办查询（query_oa_todo.sh）、OA系统待办审批（approve_oa_todo.sh）、OA系统待办同步（sync_oa_todos.sh）、OA系统待办审批（fdId）（approve_oa_todo_by_fdId.sh）。使用state save/load实现登录复用，性能提升50%以上。**新版CLI工具（oa-todo）使用SQLite数据库和文件方式解决JSON截断问题，支持部分fdId查询和状态管理。**
+description: 新国都集团OA待办管理CLI工具。使用oa-todo命令同步、查询、审批待办。**必须触发**：用户提到OA待办、查待办、我的待办、审批单据、同意/驳回审批、参加会议、不参加会议、会议邀请、批一下单子、处理OA待办、审批流程、待审批列表、同步待办等任何与OA系统待办或会议邀请相关的操作。
 ---
 
-# OA审批系统自动化
+# OA待办管理CLI
 
-## 🎉 新特性（2026-03-19）
+新国都OA系统的待办同步、查询、审批工具。支持完整ID显示、SQLite本地存储、智能同步。
 
-### 使用文件方式解决JSON截断问题
-- **问题**: `browser.eval()` 返回大量JSON数据时被截断
-- **解决方案**: 使用 `evalWithFile` 方法
-  1. 在浏览器中执行JS，将结果存储在页面DOM元素中
-  2. 使用 `snapshot` 获取完整页面内容（不会截断）
-  3. 从snapshot中提取JSON结果
-- **效果**: 完美解决JSON截断问题，可以处理任意大小的数据
-
-### 支持部分fdId查询
-- 使用 `getTodoByPrefix` 方法
-- 示例: `oa-todo show 19bba01c` 可以匹配 `19bba01cb5a30a6668fdc15413daa5da`
-
-### 新增状态管理命令
-- `oa-todo update <fdId> <status>` - 更新待办状态
-- 支持8种状态：skip/pending/approved/rejected/transferred/attended/not_attended/other
-
-## 🚀 新版 CLI 工具（推荐）
-
-### 安装
+## 🎯 推荐工作流程
 
 ```bash
-cd /Users/wangyun/.copaw/active_skills/query-oa-approval/oa-todo
-npm install
-npm link  # 全局安装（可选）
-```
-
-### 快速开始
-
-```bash
-# 同步待办
-oa-todo sync
-
-# 列出待办
+# 1. 查看本地待办（优先使用，不同步）
 oa-todo list
 
-# 查看详情
-oa-todo show <fdId>
+# 2. 查看待审核的流程审批
+oa-todo list --type workflow --status pending
 
-# 审批待办
-oa-todo approve <fdId> 参加
+# 3. 审批（使用完整ID）
+oa-todo approve <完整ID> 通过
 
-# 查看统计
-oa-todo status
+# 4. 如需强制同步（只在需要时使用）
+oa-todo sync --force
 ```
 
-### CLI 命令详解
+---
 
-#### 1. 同步待办
+## 核心优化
+
+### ✅ 优先使用本地数据
+- **默认行为**: 如果本地有待办数据，`oa-todo sync` 不会自动同步
+- **查看待办**: 直接使用 `oa-todo list`，快速高效
+- **强制同步**: 使用 `oa-todo sync --force` 强制从服务器同步
+
+### ✅ 完整信息展示
+- **完整ID**: 列表显示完整的32位ID，方便复制使用
+- **完整标题**: 标题自动换行，不会截断
+- **提交人信息**: 新增提交人/来源部门列
+
+### ✅ 详细审批信息
+- 审批时展示完整的待办详情
+- 包含提交人、来源部门、创建时间等关键信息
+
+---
+
+## 命令详解
+
+### sync - 同步待办
+
+从OA系统同步待办到本地数据库。
 
 ```bash
-# 同步所有待办
-oa-todo sync
-
-# 限制数量（测试用）
-oa-todo sync --limit 10
-
-# 同步并获取详情
-oa-todo sync --with-detail
-
-# 强制更新指定待办
-oa-todo sync --force <fdId>
+oa-todo sync                      # 智能同步（本地有数据则不同步）
+oa-todo sync --force              # 强制同步（忽略本地数据）
+oa-todo sync --limit 10           # 限制数量（测试用）
+oa-todo sync --skip-detail        # 跳过详情（更快）
+oa-todo sync --login              # 强制重新登录
+oa-todo sync --force <fdId>       # 强制更新指定待办
+oa-todo sync --force-update       # 重置skip状态为pending
+oa-todo sync --resume-from <n>    # 从指定页继续
 ```
 
-#### 2. 列出待办
+**💡 智能同步说明**:
+- 首次使用会自动同步
+- 后续使用 `oa-todo list` 查看本地数据即可
+- 只有明确要求或使用 `--force` 才会重新同步
+
+### list/ls - 列出待办
+
+查看本地待办列表，**默认只显示待审核（pending）状态**，**显示完整ID和标题**。
 
 ```bash
-# 列出待审核的待办（默认20条）
-oa-todo list
-
-# 显示所有
-oa-todo list --all
-
-# 按状态筛选
-oa-todo list --status pending
-
-# 按类型筛选
-oa-todo list --type meeting
-
-# JSON格式输出
-oa-todo list --json
+oa-todo list                      # 默认显示待审核的20条
+oa-todo list --limit 10           # 显示待审核的10条
+oa-todo list --all                # 显示所有状态
+oa-todo list --status approved    # 查看已同意的
+oa-todo list --status rejected    # 查看已驳回的
+oa-todo list --type workflow      # 按类型筛选（默认仍是pending）
+oa-todo list --type workflow --all # 查看所有状态的流程审批
+oa-todo list --json               # JSON输出
 ```
 
-#### 3. 查看详情
+**🎯 默认行为优化**:
+- ✅ **默认只显示待审核（pending）状态** - 专注于需要处理的待办
+- ✅ 完整的32位ID（方便复制）
+- ✅ 完整标题（自动换行）
+- ✅ 提交人/来源部门
+- ✅ 同步时间
+
+**查看其他状态**:
+- 使用 `--all` 查看所有状态
+- 使用 `--status <状态>` 查看指定状态
+
+**状态**: `pending`(待审核) `approved`(已同意) `rejected`(已驳回) `attended`(已参加) `not_attended`(不参加) `skip`(已跳过)
+
+**类型**: `workflow`(流程审批) `meeting`(会议邀请) `ehr` `expense` `unknown`
+
+### show - 查看详情
 
 ```bash
-# 查看详情
-oa-todo show <fdId>
-
-# 强制刷新详情
-oa-todo show <fdId> --refresh
+oa-todo show <fdId>               # 查看详情
+oa-todo show <fdId> --refresh     # 强制刷新
+oa-todo show <fdId> --open        # 在浏览器中打开
+oa-todo show 19bba                # 支持部分fdId匹配
 ```
 
-#### 4. 更新状态
+### approve - 审批操作
+
+**展示详细信息**后再审批。
 
 ```bash
-# 更新待办状态
-oa-todo update <fdId> skip --comment "跳过处理"
-oa-todo update <fdId> pending
-oa-todo update <fdId> approved
-oa-todo update <fdId> rejected
-oa-todo update <fdId> transferred
-oa-todo update <fdId> attended
-oa-todo update <fdId> not_attended
-oa-todo update <fdId> other
+# 流程审批
+oa-todo approve <完整ID> 通过
+oa-todo approve <完整ID> 驳回
+oa-todo approve <完整ID> 转办
 
-# 支持部分fdId
-oa-todo update 19bba01c skip --comment "测试"
-```
-
-#### 5. 审批待办
-
-```bash
-# 会议类
-oa-todo approve <fdId> 参加
-oa-todo approve <fdId> 不参加
-
-# 流程类
-oa-todo approve <fdId> 通过
-oa-todo approve <fdId> 驳回
-oa-todo approve <fdId> 转办
+# 会议邀请
+oa-todo approve <完整ID> 参加
+oa-todo approve <完整ID> 不参加
 
 # 带审批意见
-oa-todo approve <fdId> 通过 --comment "同意"
+oa-todo approve <完整ID> 通过 --comment "同意"
+
+# 调试模式（显示浏览器）
+oa-todo approve <完整ID> 通过 --debug
+
+# 跳过确认
+oa-todo approve <完整ID> 通过 --force
 ```
 
-#### 6. 查看统计
+**审批信息展示**:
+```
+📋 待办详细信息:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ID:         18798bf8c8b26e8fbfb50d34f0888f8f
+  标题:       请审批[基础架构部]吴庆提交的流程：评审小组
+  类型:       流程审批
+  当前状态:   待审核
+  提交人:     吴庆
+  来源部门:   基础架构部
+  创建时间:   2025-01-15 10:30:00
+  同步时间:   2025-01-15 14:20:15
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+| 参数 | 说明 |
+|------|------|
+| `--comment <text>` | 审批意见 |
+| `--force` | 跳过确认直接执行 |
+| `--debug` | 显示浏览器窗口，在审批页面暂停 |
+| `--delay <秒>` | 成功后延迟关闭窗口 |
+| `--skip-status-check` | 跳过本地状态检查 |
+
+### status - 统计信息
 
 ```bash
-# 总体统计
+oa-todo status              # 总体统计
+oa-todo status --by-type    # 按类型统计
+oa-todo status --by-status  # 按状态统计
+oa-todo status --by-date    # 按日期统计
+```
+
+---
+
+## 常用场景
+
+### 🎯 推荐流程（优先使用）
+
+```bash
+# 1. 查看本地待办（快速）
+oa-todo list
+
+# 2. 查看待审核的流程审批
+oa-todo list --type workflow --status pending
+
+# 3. 复制完整ID，进行审批
+oa-todo approve 18798bf8c8b26e8fbfb50d34f0888f8f 通过
+
+# 4. 查看统计
 oa-todo status
-
-# 按类型统计
-oa-todo status --by-type
-
-# 按状态统计
-oa-todo status --by-status
 ```
 
-#### 6. 清理数据
+### 强制同步场景
 
 ```bash
-# 清理7天前的数据
-oa-todo clean --days 7
+# 明确要求同步时
+oa-todo sync --force
 
-# 清理已审批的数据
-oa-todo clean --status approved
+# 或首次使用
+oa-todo sync
 ```
 
-### 优势
+### 批量审批
 
-- ✅ **SQLite数据库**：结构化存储，支持复杂查询
-- ✅ **状态管理**：完整的状态流转记录
-- ✅ **类型识别**：自动从标题识别待办类型
-- ✅ **智能同步**：详情已存在则跳过
-- ✅ **操作日志**：所有操作都有记录
+```bash
+# 查看待审核列表
+oa-todo list --status pending
 
----
+# 批量审批（使用完整ID）
+for id in 18798bf8c8b26e8fbfb50d34f0888f8f 1877517aca354d3b44b4ddb488fadd32; do
+    oa-todo approve "$id" 通过 --force
+done
+```
 
-## 🎯 旧版脚本（兼容）
+### 处理会议邀请
 
-### 费控系统（报销/费用）
+```bash
+# 查看会议
+oa-todo list --type meeting
 
-| 我要做什么 | 使用哪个脚本 | 示例 |
-|-----------|------------|------|
-| **查看费控待审批** | `query_approval.sh` | `./scripts/query_approval.sh` |
-| **审批费控单据** | `approve.sh` | `./scripts/approve.sh FK001 同意` |
-| **批量审批费控单据** | `batch_approve.sh` | `./scripts/batch_approve.sh list.csv` |
-| **保存登录状态** | `login.sh` | `./scripts/login.sh` |
-
-### OA系统（通用待办）
-
-| 我要做什么 | 使用哪个脚本 | 示例 |
-|-----------|------------|------|
-| **查看OA系统待办** | `query_oa_todo.sh` | `./scripts/query_oa_todo.sh` |
-| **审批OA系统待办（序号）** | `approve_oa_todo.sh` | `./scripts/approve_oa_todo.sh 1 参加` |
-| **审批OA系统待办（fdId）** | `approve_oa_todo_by_fdId.sh` | `./scripts/approve_oa_todo_by_fdId.sh abc123def456 参加` |
-| **同步所有待办详情** | `sync_oa_todos.sh` | `./scripts/sync_oa_todos.sh` |
-
-**⚠️ 推荐**：使用新版 CLI 工具 `oa-todo`，功能更强大！
-
----
-
-## 功能概述
-
-此技能提供新国都集团OA系统的完整审批自动化功能：
-
-### 费控系统（报销/费用）
-- ✅ **登录管理**: 独立登录脚本，保存登录状态供复用
-- 🔍 **查询待办**: 查询费控系统待审批流程
-- ⚡ **单据审批**: 根据单号执行同意或驳回操作
-- 🚀 **批量审批**: 并发处理多个审批任务
-- 🔐 **并发支持**: 使用独立session，支持多脚本同时执行
-
-### OA系统（通用待办）
-- 📋 **查询待办**: 查询OA系统"我的待办"列表
-- ✅ **待办审批**: 审批OA系统待办事项（同意/驳回）
-- 🔄 **待办同步**: 翻页获取所有待办，逐个打开详情并保存到本地
-- 🔗 **独立session**: 一个审批一个session，互不干扰
+# 参加
+oa-todo approve <完整ID> 参加
+```
 
 ---
 
 ## 环境变量
 
-以下环境变量需在CoPaw Environments中配置：
-
-- `OA_USER_NAME`: OA系统用户名（必需）
-- `OA_USER_PASSWD`: OA系统密码（必需）
-- `OA_STATE_FILE`: 登录状态文件路径（可选，默认: /tmp/oa_login_state.json）
-- `OA_DB_PATH`: 数据库路径（可选，默认: /tmp/oa_todos/oa_todos.db）
-- `OA_TODOS_DIR`: 待办目录（可选，默认: /tmp/oa_todos）
-- `LOGIN_TIMEOUT_MINUTES`: 登录超时时间（可选，默认: 10分钟）
-
-## 数据结构
-
-### 待办类型
-
-- `meeting`: 会议邀请
-- `workflow`: 流程审批
-- `expense`: 报销
-- `ehr`: EHR
-- `unknown`: 未知
-
-### 待办状态
-
-- `skip`: 已跳过（无法处理）
-- `pending`: 待审核
-- `approved`: 已同意
-- `rejected`: 已驳回
-- `transferred`: 已转办
-- `attended`: 已参加
-- `not_attended`: 不参加
-- `other`: 其他
-
-### 支持的审批动作
-
-| 待办类型 | 支持的动作 |
-|---------|-----------|
-| 会议邀请 | 参加、不参加 |
-| 流程审批 | 通过、驳回、转办 |
-| 报销 | 通过、驳回（暂不支持） |
-| EHR | 暂不支持 |
-
-### 数据库表结构
-
-#### todos 表
-
-```sql
-CREATE TABLE todos (
-    fd_id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    href TEXT NOT NULL,
-    todo_type TEXT DEFAULT 'unknown',
-    status TEXT DEFAULT 'pending',
-    action TEXT,
-    created_at TEXT,
-    updated_at TEXT,
-    synced_at TEXT,
-    processed_at TEXT,
-    detail_path TEXT,
-    snapshot_path TEXT,
-    screenshot_path TEXT,
-    source_dept TEXT,
-    submitter TEXT,
-    comment TEXT,
-    raw_data TEXT
-);
-```
-
-#### logs 表
-
-```sql
-CREATE TABLE logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    fd_id TEXT,
-    action TEXT NOT NULL,
-    old_status TEXT,
-    new_status TEXT,
-    comment TEXT,
-    created_at TEXT
-);
-```
-
-## 依赖要求
-
-- **Node.js** >= 14.0.0
-- **npm** >= 6.0.0
-- **agent-browser**（自动检查，如未安装会提示）
-
-**自动安装**：首次运行脚本时，会自动检查 agent-browser，如未安装会提供详细的安装指引。
-
-**手动安装**：
-```bash
-# 全局安装（推荐）
-npm install -g agent-browser
-
-# 使用国内镜像
-npm config set registry https://registry.npmmirror.com
-npm install -g agent-browser
-```
-
----
-
-## 快速开始
-
-### 场景 1：查询待审批（仅查看）
-
-```bash
-# 一条命令完成查询（自动登录）
-./scripts/query_approval.sh
-```
-
-### 场景 2：审批单个单据
-
-```bash
-# 步骤 1：登录保存状态（首次使用）
-./scripts/login.sh
-
-# 步骤 2：执行审批
-./scripts/approve.sh FK20250101001 同意
-
-# 步骤 3：继续审批（复用登录状态）
-./scripts/approve.sh FK20250101002 驳回 费用超标
-```
-
-**approve.sh 参数**：
-- `<单号>`: 费控系统中的单据编号
-- `<同意|驳回>`: 审批动作（必须二选一）
-- `[审批意见]`: 可选，驳回时建议填写原因
-
-**智能查询**：
-- 自动在审批记录中查询单据状态
-- 快速区分"已审批"和"不存在"
-- 避免重复审批
-
-### 场景 3：批量审批
-
-```bash
-# 步骤 1：登录保存状态
-./scripts/login.sh
-
-# 步骤 2：创建审批清单
-cat > approval_list.csv <<EOF
-单号,动作,审批意见
-FK20250101001,同意,
-FK20250101002,驳回,费用超标
-FK20250101003,同意,已核实
-EOF
-
-# 步骤 3：执行批量审批（并发数3）
-./scripts/batch_approve.sh approval_list.csv 3
-
-# 步骤 4：查看结果
-cat /tmp/oa_batch_results.csv
-```
-
-### 场景 4：OA系统待办审批
-
-```bash
-# 步骤 1：登录保存状态（首次使用）
-./scripts/login.sh
-
-# 步骤 2：查询OA系统待办
-./scripts/query_oa_todo.sh
-
-# 输出示例:
-# ========================================
-#   待办列表（共 3 条）
-# ========================================
-# 【1】报销申请 - 张三 - 2025-03-18
-# 【2】请假申请 - 李四 - 2025-03-18
-# 【3】采购申请 - 王五 - 2025-03-18
-
-# 步骤 3：审批第1条待办（同意）
-./scripts/approve_oa_todo.sh 1 参加
-
-# 步骤 4：审批第2条待办（驳回，带意见）
-./scripts/approve_oa_todo.sh 2 通过 "同意"
-
-# 步骤 5：通过关键词审批
-./scripts/approve_oa_todo.sh "报销申请" 通过 "同意报销"
-```
-
-**query_oa_todo.sh 参数**：
-- 无参数，直接查询OA系统"我的待办"列表
-
-**approve_oa_todo.sh 参数**：
-- `<序号或关键词>`: 待办事项的序号（如 1, 2, 3）或关键词（如 "报销申请"）
-- `<参加|不参加|通过|驳回|转办>`: 审批动作
-  - 会议安排类: 参加 | 不参加
-  - 流程管理类: 通过 | 驳回 | 转办
-- `[处理意见]`: 可选，建议填写
-- `[转办人员]`: 转办时必需
-
-**特点**：
-- ✅ 自动检测待办类型（会议安排/流程管理）
-- ✅ 会议安排：选择参加/不参加，填写留言
-- ✅ 流程管理：滚动到底部，选择通过/驳回/转办
-- ✅ 驳回时默认打回上一节点
-- ✅ 转办需提供人员姓名
-- ✅ 一个审批一个session，互不干扰
-- ✅ 复用登录状态，避免重复登录
-
-### 场景 5：批量处理OA系统待办
-
-```bash
-# 方式1: 交互模式（推荐）
-./scripts/batch_approve_oa_todo.sh
-
-# 方式2: 自动处理前10条
-./scripts/batch_approve_oa_todo.sh 10
-
-# 方式3: 处理指定范围（第1-5条）
-./scripts/batch_approve_oa_todo.sh 1-5
-
-# 方式4: 处理指定序号（第1,3,5条）
-./scripts/batch_approve_oa_todo.sh 1,3,5
-```
-
-**batch_approve_oa_todo.sh 参数**：
-- `[选择]`: 可选，不提供则进入交互模式
-  - `10`: 处理前10条
-  - `1-10`: 处理第1-10条
-  - `1,3,5`: 处理第1,3,5条
-
-**统一规则（方式B）**：
-- 流程管理类: 自动选择"通过"，意见="同意"
-- 会议安排类: 自动选择"参加"，无留言
-- 转办操作: 自动跳过（需要指定人员）
-
-**特点**：
-- ✅ 先查询待办列表，显示给用户
-- ✅ 支持交互式选择
-- ✅ 自动识别待办类型
-- ✅ 按统一规则批量处理
-- ✅ 生成详细的处理结果报告
-- ✅ 统计成功/失败/跳过数量
-
-### 场景 6：同步所有待办详情
-
-```bash
-# 方式1: 同步所有待办详情
-./scripts/sync_oa_todos.sh
-
-# 方式2: 测试模式（仅获取前2条）
-./scripts/sync_oa_todos.sh 2
-
-# 方式3: 获取前10条
-./scripts/sync_oa_todos.sh 10
-```
-
-**sync_oa_todos.sh 参数**：
-- `[limit]`: 可选，限制获取数量
-  - 不提供：获取所有待办
-  - `2`: 测试模式，仅获取2条
-  - `10`: 获取前10条
-
-**输出文件**（保存在 `/tmp/oa_todos/` 目录）：
-- `index.txt`: 待办索引（**fdId|标题|链接**），以fdId为关键字整行更新
-- `summary.txt`: 汇总报告
-- `[fdId]/`: 每个待办的详情目录（以fdId命名）
-  - `detail.txt`: 待办详情（页面内容+快照）
-  - `snapshot.txt`: 页面快照
-  - `screenshot.png`: 页面截图
-
-**特点**：
-- ✅ 翻页获取所有待办
-- ✅ 提取fdId作为唯一标识
-- ✅ 索引文件以fdId为关键字整行更新
-- ✅ 已存在的详情文件自动跳过
-- ✅ 逐个打开待办详情页面
-- ✅ 保存完整页面内容和快照
-- ✅ 生成截图便于查看
-- ✅ 支持限制数量（测试模式）
-- ✅ 复用登录状态，性能优化
-
----
-
-## 脚本说明
-
-### login.sh - 登录并保存状态
-
-**用途**：独立登录脚本，保存cookies和session到文件
-
-**使用**：
-```bash
-# 标准登录
-./scripts/login.sh
-
-# 可视化调试
-AGENT_BROWSER_HEADED=1 ./scripts/login.sh
-```
-
-**输出**：
-- 登录状态文件: `/tmp/oa_login_state.json`
-- 有效期: 约30分钟
-
-### query_approval.sh - 查询待审批
-
-**用途**：查询费控系统待审批流程（**仅查询，不审批**）
-
-**使用**：
-```bash
-# 标准查询（包含自动登录）
-./scripts/query_approval.sh
-
-# 可视化调试
-AGENT_BROWSER_HEADED=1 ./scripts/query_approval.sh
-```
-
-**输出**：
-- 控制台输出待审批列表
-- 日志文件: `/tmp/oa_approve_*.log`（批量审批）
-
-### approve.sh - 执行单据审批
-
-**用途**：执行单据审批操作（**仅审批，不查询列表**）
-
-**使用**：
-```bash
-# 同意
-./scripts/approve.sh FK20250101001 同意
-
-# 驳回（建议填写原因）
-./scripts/approve.sh FK20250101002 驳回 费用超标
-
-# 可视化调试
-AGENT_BROWSER_HEADED=1 ./scripts/approve.sh FK20250101001 同意
-```
-
-**智能功能**：
-- 自动在待审批和审批记录中查询单据
-- 显示单据审批状态
-- 提供清晰的错误提示
-
-### batch_approve.sh - 批量并发审批
-
-**用途**：批量处理多个审批任务
-
-**使用**：
-```bash
-# 默认并发数3
-./scripts/batch_approve.sh approval_list.csv
-
-# 指定并发数5
-./scripts/batch_approve.sh approval_list.csv 5
-```
-
-**输出**：
-- 结果文件: `/tmp/oa_batch_results.csv`
-- 单据日志: `/tmp/oa_approve_<单号>.log`
-
-### query_oa_todo.sh - 查询OA系统待办
-
-**用途**：查询OA系统"我的待办"列表（**仅查询，不审批**）
-
-**使用**：
-```bash
-# 标准查询（包含自动登录）
-./scripts/query_oa_todo.sh
-
-# 可视化调试
-AGENT_BROWSER_HEADED=1 ./scripts/query_oa_todo.sh
-```
-
-**输出**：
-- 控制台输出待办列表（序号、标题、时间等信息）
-- 统计待办数量
-
-### approve_oa_todo.sh - 审批OA系统待办
-
-**用途**：审批OA系统待办事项（**仅审批，不查询列表**）
-
-**使用**：
-```bash
-# 通过序号审批
-./scripts/approve_oa_todo.sh 1 同意
-./scripts/approve_oa_todo.sh 2 驳回 "请假天数不足"
-
-# 通过关键词审批
-./scripts/approve_oa_todo.sh "报销申请" 同意 "同意报销"
-
-# 可视化调试
-AGENT_BROWSER_HEADED=1 ./scripts/approve_oa_todo.sh 1 同意
-```
-
-**智能功能**：
-- ✅ 自动进入OA系统，点击"我的待办"
-- ✅ 支持序号和关键词查找待办事项
-- ✅ 一个审批一个session，互不干扰
-- ✅ 支持填写审批意见
-- ✅ 复用登录状态，避免重复登录
-
-### sync_oa_todos.sh - 同步所有待办详情
-
-**用途**：翻页获取所有待办，逐个打开详情并保存到本地
-
-**使用**：
-```bash
-# 同步所有待办详情
-./scripts/sync_oa_todos.sh
-
-# 测试模式（仅获取前2条）
-./scripts/sync_oa_todos.sh 2
-
-# 可视化调试
-AGENT_BROWSER_HEADED=1 ./scripts/sync_oa_todos.sh 2
-```
-
-**输出**（保存在 `/tmp/oa_todos/` 目录）：
-- `index.txt`: 待办索引（**fdId|标题|链接**），以fdId为关键字整行更新
-- `summary.txt`: 汇总报告（统计信息+文件列表）
-- `[fdId]/`: 每个待办的详情目录（以fdId命名）
-  - `detail.txt`: 待办详情（页面内容+快照）
-  - `snapshot.txt`: 页面快照
-  - `screenshot.png`: 页面截图
-
-**工作流程**：
-1. 检查登录状态，如过期则自动重新登录
-2. 打开待办列表页面
-3. 翻页获取所有待办链接和标题
-4. 提取fdId，更新索引文件（整行替换）
-5. 逐个打开待办详情页面（跳过已存在的）
-6. 保存页面内容、快照和截图到对应fdId目录
-7. 生成汇总报告
-
-**特点**：
-- ✅ 支持翻页，获取所有待办
-- ✅ 提取fdId作为唯一标识
-- ✅ 索引文件以fdId为关键字整行更新
-- ✅ 已存在的详情文件自动跳过
-- ✅ 保存完整的待办详情
-- ✅ 支持限制数量（测试模式）
-- ✅ 复用登录状态，性能优化
-- ✅ 生成索引和汇总报告
-
-### approve_oa_todo_by_fdId.sh - 通过fdId精确审批
-
-**用途**：通过fdId精确定位并审批待办
-
-**使用**：
-```bash
-# 会议安排类
-./scripts/approve_oa_todo_by_fdId.sh 19bba01cb5a30a6668fdc15413daa5da 参加
-./scripts/approve_oa_todo_by_fdId.sh 19bba01cb5a30a6668fdc15413daa5da 不参加 "已有其他安排"
-
-# 流程管理类
-./scripts/approve_oa_todo_by_fdId.sh 196a8d090affec19889720144edb5c5f 通过 "同意"
-./scripts/approve_oa_todo_by_fdId.sh 196a8d090affec19889720144edb5c5f 驳回 "信息不完整"
-
-# 可视化调试
-AGENT_BROWSER_HEADED=1 ./scripts/approve_oa_todo_by_fdId.sh 19bba01cb5a30a6668fdc15413daa5da 参加
-```
-
-**参数**：
-- `<fdId>`: 待办唯一标识符（从 `/tmp/oa_todos/index.txt` 获取）
-- `<审批动作>`: 审批动作（参加/不参加/通过/驳回/转办）
-- `[处理意见]`: 可选，建议填写
-- `[转办人员]`: 转办时必需
-
-**获取fdId**：
-```bash
-# 查看索引文件
-cat /tmp/oa_todos/index.txt
-
-# 或执行同步脚本
-./scripts/sync_oa_todos.sh
-```
-
-**工作流程**：
-1. 从索引文件 `/tmp/oa_todos/index.txt` 中精确查找fdId
-2. 显示找到的待办信息
-3. 使用fdId从索引中获取详情链接
-4. 直接打开详情页面执行审批
-5. 自动检测待办类型并执行相应操作
-6. 审批成功后更新索引文件
-
-**特点**：
-- ✅ 通过fdId精确定位，避免同名待办混淆
-- ✅ 直接从索引获取详情链接，无需列表查找
-- ✅ 审批成功后自动更新索引文件
-- ✅ 支持同名待办，每次处理一个
-- ✅ 复用登录状态，性能优化
-- ✅ 一个审批一个session，互不干扰
+| 变量 | 必需 | 默认值 | 说明 |
+|------|------|--------|------|
+| `OA_USER_NAME` | ✅ | - | OA用户名 |
+| `OA_USER_PASSWD` | ✅ | - | OA密码 |
+| `OA_STATE_FILE` | ❌ | `/tmp/oa_login_state.json` | 登录状态文件 |
+| `OA_DB_PATH` | ❌ | `/tmp/oa_todos/oa_todos.db` | 数据库路径 |
 
 ---
 
 ## 常见问题
 
-### Q: 登录状态过期怎么办？
+### 登录状态过期？
 
+重新同步会自动登录：
 ```bash
-# 重新登录保存状态
-./scripts/login.sh
-
-# 然后再执行审批
-./scripts/approve.sh FK20250101001 同意
+oa-todo sync
 ```
 
-### Q: 单据未找到？
+### fdId太长？
 
-脚本会自动在审批记录中查询，可能的输出：
-
-**情况1：单据已被审批**
-```
-⚠️  单据已被处理
-单号: FK20250101001
-状态: 在审批记录中找到
-审批结果: 已同意
-```
-
-**情况2：单据不存在**
-```
-❌ 单据不存在
-单号: FK20250101001
-说明: 在待审批和审批记录中均未找到
-可能原因:
-  1. 单号输入错误
-  2. 单据不存在
-  3. 没有审批权限
-```
-
-### Q: 如何调试？
-
+使用部分匹配：
 ```bash
-# 使用可视化模式
-AGENT_BROWSER_HEADED=1 ./scripts/approve.sh FK20250101001 同意
+# 完整: 19bba01cb5a30a6668fdc15413daa5da
+oa-todo show 19bba  # 只需前几位
+```
 
-# 查看日志
-cat /tmp/oa_approve_FK20250101001.log
+### 调试登录问题？
+
+使用可视化模式：
+```bash
+AGENT_BROWSER_HEADED=1 oa-todo sync
 ```
 
 ---
 
-## 详细文档
+## 依赖
 
-需要更详细的信息，请查阅：
-
-- **架构设计**: [references/architecture.md](references/architecture.md)
-  - 登录状态复用机制
-  - 并发架构
-  - 性能数据
-
-- **故障排查**: [references/troubleshooting.md](references/troubleshooting.md)
-  - 常见问题及解决方案
-  - 调试方法
-  - 日志文件说明
-
-- **技术细节**: [references/technical-details.md](references/technical-details.md)
-  - JavaScript 交互示例
-  - agent-browser 命令参考
-  - 错误处理
-
-- **最佳实践**: [references/best-practices.md](references/best-practices.md)
-  - 推荐工作流
-  - 性能优化
-  - 安全建议
-  - 定时任务
+- Node.js >= 14.0.0
+- agent-browser（首次运行自动检查）
 
 ---
 
-## 使用限制
+## 更多文档
 
-1. **登录方式**: 当前仅支持用户名密码登录
-2. **验证码**: 不支持验证码验证
-3. **审批类型**: 仅支持费控系统审批
-4. **并发限制**: 建议不超过5个并发任务
-
----
-
-## 更新日志
-
-### v2.4.0 - 2025-03-18
-
-**新增功能**:
-- ✨ 新增 approve_oa_todo_by_fdId.sh 脚本
-- 🔑 通过fdId精确定位待办
-- ⚡ 直接从索引获取详情链接
-- 🔄 审批成功后自动更新索引文件
-
-**优化改进**:
-- 🎯 避免同名待办混淆
-- 📊 提升审批准确性和效率
-- 🧪 测试通过，支持会议和流程两种类型
-
-**使用场景**:
-- 通过fdId精确审批同名待办
-- 批量审批特定待办
-- 配合脚本实现自动化流程
-
-### v2.3.0 - 2025-03-18
-
-**目录结构优化**:
-- 📁 优化同步目录结构，统一使用 `/tmp/oa_todos/`
-- 🔑 索引文件以 fdId 为关键字整行更新
-- 📂 详情文件存储在 `/tmp/oa_todos/[fdId]/` 目录下
-- ⚡ 已存在的详情文件自动跳过，提升性能
-
-**新增功能**:
-- ✨ 新增 approve_oa_todo_by_title.sh 脚本
-- 🔍 支持通过标题关键词检索待办
-- 🎯 自动选择第一个匹配的待办执行审批
-- 📊 从索引文件快速获取待办信息
-
-**使用场景**:
-- 通过标题快速定位待办（如"报销"、"请假"等）
-- 批量导出待办详情用于分析
-- 定期备份待办信息
-- 批量处理前的预检查
-
-### v2.2.0 - 2025-03-18
-
-**新增功能**:
-- ✨ 新增 sync_oa_todos.sh 脚本，支持同步所有待办详情
-- 🔄 支持翻页获取所有待办
-- 📁 逐个打开待办详情并保存到本地
-- 💾 保存页面内容、快照和截图
-- 📊 生成索引和汇总报告
-- 🧪 支持限制数量（测试模式）
-
-### v2.1.0 - 2025-03-18
-
-**智能查询功能**:
-- ✨ 自动在审批记录中查询单据状态
-- 🔍 快速区分"已审批"和"不存在"
-- 💡 提供清晰的错误提示
-
-**文档优化**:
-- 📚 重构文档结构，遵循 Progressive Disclosure 原则
-- 🎯 增加快速决策表
-- 🚀 强化 description，提升触发准确性
-
-### v2.0.0 - 2025-03-18
-
-**新增功能**:
-- ✨ 登录状态保存/加载机制
-- ✨ 独立审批脚本
-- ✨ 批量并发审批
-- ✨ Session隔离
-
-**性能提升**:
-- 单个审批任务从 ~15秒 降至 ~7秒
-- 支持3-5个任务并发执行
-
----
-
-**技术支持**: 如遇问题，请查看 [故障排查指南](references/troubleshooting.md) 或使用可视化模式调试。
+- [高级用法与数据库结构](references/advanced.md)
+- [旧版脚本迁移指南](references/legacy.md)

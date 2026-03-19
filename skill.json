@@ -1,11 +1,11 @@
 {
   "name": "query-oa-approval",
-  "version": "2.1.0",
-  "description": "新国都集团OA费控系统审批自动化工具。支持查询待审批流程、单据审批（同意/驳回）、批量审批。使用state save/load实现登录状态复用，支持多脚本并发执行。当用户需要查询费控待办、执行审批、批量处理单据时使用此技能。",
+  "version": "3.0.0",
+  "description": "新国都集团OA审批CLI工具。使用oa-todo命令进行待办同步、查询、审批。支持SQLite数据库、状态管理、部分fdId匹配、文件方式解决JSON截断问题。当用户需要查询OA待办、执行审批、处理待办事项时使用此技能。",
   "author": "CoPaw",
   "created": "2025-03-17",
-  "updated": "2025-03-18",
-  "tags": ["OA", "费控", "审批", "自动化", "批量处理"],
+  "updated": "2026-03-19",
+  "tags": ["OA", "审批", "CLI", "SQLite", "自动化", "待办管理"],
   "requirements": {
     "environment": [
       {
@@ -27,95 +27,144 @@
         "description": "登录状态文件路径（可选，默认: /tmp/oa_login_state.json）",
         "required": false,
         "default": "/tmp/oa_login_state.json"
+      },
+      {
+        "name": "OA_DB_PATH",
+        "description": "SQLite数据库路径（可选，默认: /tmp/oa_todos/oa_todos.db）",
+        "required": false,
+        "default": "/tmp/oa_todos/oa_todos.db"
+      },
+      {
+        "name": "OA_TODOS_DIR",
+        "description": "待办目录（可选，默认: /tmp/oa_todos）",
+        "required": false,
+        "default": "/tmp/oa_todos"
+      },
+      {
+        "name": "LOGIN_TIMEOUT_MINUTES",
+        "description": "登录超时时间（可选，默认: 10分钟）",
+        "required": false,
+        "default": "10"
       }
     ],
     "dependencies": [
+      "node >= 14.0.0",
+      "npm >= 6.0.0",
       "agent-browser"
     ],
+    "installation": "cd oa-todo && npm install && npm link",
     "security": {
       "data_protection": [
-      "环境变量仅在本地存储",
-      "不会上传到云端或服务器",
-      "AI助手不会主动询问用户名和密码",
-      "请勿在对话中透露敏感信息"
-    ],
+        "环境变量仅在本地存储",
+        "不会上传到云端或服务器",
+        "AI助手不会主动询问用户名和密码",
+        "请勿在对话中透露敏感信息"
+      ],
       "best_practices": [
-      "定期更换OA系统密码",
-      "更换密码后更新环境变量配置",
-      "使用完毕后关闭浏览器会话",
-      "定期清理临时文件和日志"
-    ],
+        "定期更换OA系统密码",
+        "更换密码后更新环境变量配置",
+        "使用完毕后关闭浏览器会话",
+        "定期清理临时文件和日志"
+      ],
       "warnings": [
-      "切勿在对话中直接发送用户名或密码",
-      "切勿截图或记录配置界面",
-      "日志文件可能包含敏感信息，分享前请脱敏"
-    ]
+        "切勿在对话中直接发送用户名或密码",
+        "切勿截图或记录配置界面",
+        "日志文件可能包含敏感信息，分享前请脱敏"
+      ]
     }
   },
   "scripts": {
-    "login": "./scripts/login.sh",
-    "query": "./scripts/query_approval.sh",
-    "approve": "./scripts/approve.sh",
-    "batch": "./scripts/batch_approve.sh"
+    "sync": "oa-todo sync",
+    "list": "oa-todo list",
+    "show": "oa-todo show <fdId>",
+    "approve": "oa-todo approve <fdId> <action>",
+    "update": "oa-todo update <fdId> <status>",
+    "status": "oa-todo status",
+    "clean": "oa-todo clean"
   },
   "usage": {
     "examples": [
       {
-        "command": "./scripts/login.sh",
-        "description": "登录并保存状态"
+        "command": "oa-todo sync",
+        "description": "同步待办列表"
       },
       {
-        "command": "./scripts/query_approval.sh",
-        "description": "查询待审批列表"
+        "command": "oa-todo list",
+        "description": "列出待办"
       },
       {
-        "command": "./scripts/approve.sh FK20250101001 同意",
-        "description": "同意单据"
+        "command": "oa-todo list --status pending",
+        "description": "列出待审核的待办"
       },
       {
-        "command": "./scripts/approve.sh FK20250101002 驳回 费用超标",
-        "description": "驳回单据并填写原因"
+        "command": "oa-todo show <fdId>",
+        "description": "查看待办详情"
       },
       {
-        "command": "./scripts/batch_approve.sh list.csv 3",
-        "description": "批量审批（并发3）"
+        "command": "oa-todo approve <fdId> 通过",
+        "description": "审批待办（通过）"
+      },
+      {
+        "command": "oa-todo approve <fdId> 参加",
+        "description": "审批待办（参加会议）"
+      },
+      {
+        "command": "oa-todo approve <fdId> 通过 --comment \"同意\"",
+        "description": "审批待办（带意见）"
+      },
+      {
+        "command": "oa-todo status",
+        "description": "查看统计信息"
+      },
+      {
+        "command": "oa-todo update <fdId> skip --comment \"跳过\"",
+        "description": "更新待办状态"
       }
     ]
   },
   "features": [
-    "登录状态保存/加载机制",
-    "查询待审批流程",
-    "单据审批（同意/驳回）",
-    "智能查询（自动检查审批记录）",
-    "批量并发审批",
-    "完整的日志和截图记录"
+    "SQLite数据库存储",
+    "状态管理（8种状态）",
+    "部分fdId匹配查询",
+    "文件方式解决JSON截断问题",
+    "自动识别待办类型（会议/流程）",
+    "智能同步（详情已存在则跳过）",
+    "完整的操作日志",
+    "支持批量处理",
+    "并发安全（独立session）"
   ],
   "changelog": {
-    "2.1.0": {
+    "3.0.0": {
+      "date": "2026-03-19",
+      "changes": [
+        "CLI工具优先：oa-todo成为主要操作方式",
+        "新增SQLite数据库支持",
+        "新增状态管理功能",
+        "新增部分fdId匹配功能",
+        "使用文件方式解决JSON截断问题",
+        "bash脚本移至legacy section"
+      ]
+    },
+    "2.4.0": {
       "date": "2025-03-18",
       "changes": [
-        "增加智能查询功能（自动在审批记录中查询单据状态）",
-        "优化状态提取逻辑",
-        "增加审批时间和审批结果显示",
-        "优化错误提示信息"
+        "新增approve_oa_todo_by_fdId.sh脚本",
+        "通过fdId精确定位待办"
       ]
     },
     "2.0.0": {
       "date": "2025-03-18",
       "changes": [
-        "重构架构：登录与审批分离",
-        "增加state save/load机制",
-        "新增独立审批脚本approve.sh",
-        "新增批量审批脚本batch_approve.sh",
-        "支持多脚本并发执行"
+        "登录状态保存/加载机制",
+        "独立审批脚本",
+        "批量并发审批"
       ]
     },
     "1.0.0": {
       "date": "2025-03-17",
       "changes": [
         "初始版本",
-        "实现自动登录OA系统",
-        "查询待审批流程"
+        "实现自动登录OA系统"
       ]
     }
   }
