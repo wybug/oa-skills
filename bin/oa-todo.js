@@ -46,10 +46,14 @@ program
   .description('同步OA系统待办列表')
   .option('--limit <n>', '限制同步数量', parseInt, 0)
   .option('--force <fdId>', '强制更新指定待办详情')
-  .option('--with-detail', '同步时获取详情', false)
+  .option('--force-update', '强制更新 skip 状态的待办（重置为 pending）', false)
   .option('--skip-detail', '跳过详情获取', false)
   .option('--login', '强制重新登录', false)
+  .option('--debug', '开启调试模式', false)
+  .option('--resume-from <n>', '从指定页继续同步', parseInt)
   .action(async (options) => {
+    // 将 debug 选项映射到 debugPagination
+    options.debugPagination = options.debug;
     const sync = require('../src/commands/sync');
     await sync({ ...options, config });
   });
@@ -86,19 +90,12 @@ program
   .description('审批待办')
   .option('--comment <text>', '审批意见')
   .option('--force', '强制执行（不确认）', false)
+  .option('--debug', '调试模式：显示浏览器窗口并在审批页面暂停', false)
+  .option('--delay <seconds>', '成功后延迟关闭窗口时间（秒）', parseInt, 3)
+  .option('--skip-status-check', '跳过本地状态检查', false)
   .action(async (fdId, action, options) => {
     const approve = require('../src/commands/approve');
     await approve(fdId, action, { ...options, config });
-  });
-
-// update 命令
-program
-  .command('update <fdId> <status>')
-  .description('更新待办状态')
-  .option('--comment <text>', '备注说明')
-  .action(async (fdId, status, options) => {
-    const update = require('../src/commands/update');
-    await update(fdId, status, { ...options, config });
   });
 
 // status 命令
@@ -111,18 +108,6 @@ program
   .action(async (options) => {
     const status = require('../src/commands/status');
     await status({ ...options, config });
-  });
-
-// clean 命令
-program
-  .command('clean')
-  .description('清理数据')
-  .option('--days <n>', '清理N天前的数据', parseInt, 30)
-  .option('--status <status>', '清理指定状态的数据')
-  .option('--all', '清理所有数据', false)
-  .action(async (options) => {
-    const clean = require('../src/commands/clean');
-    await clean({ ...options, config });
   });
 
 // 错误处理

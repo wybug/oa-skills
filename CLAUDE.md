@@ -40,7 +40,7 @@ Check/install dependencies: `./scripts/check_dependencies.sh`
 
 ### OA系统 (General OA)
 - URL: `https://oa.xgd.com`
-- Scripts: `query_oa_todo.sh`, `approve_oa_todo.sh`, `approve_oa_todo_by_title.sh`, `sync_oa_todos.sh`
+- Scripts: `query_oa_todo.sh`, `approve_oa_todo.sh`, `approve_oa_todo_by_title.sh`, `approve_oa_todo_by_fdId.sh`, `sync_oa_todos.sh`
 - Use case: General workflow approvals, meeting notifications
 
 **Important**: Do not mix scripts between systems. Each has its own entry point and workflow.
@@ -68,9 +68,15 @@ The login state is saved as a JSON file containing cookies and session data, all
 ```bash
 ./scripts/query_oa_todo.sh                    # Query OA todo list
 ./scripts/approve_oa_todo.sh <序号|关键词> <动作> [意见]  # Approve OA todo by index/keyword
-./scripts/approve_oa_todo_by_title.sh "<关键词>" <动作> [意见]  # Approve by searching title
+./scripts/approve_oa_todo_by_title.sh "<关键词>" <动作> [意见]  # Approve by searching title (fuzzy match)
+./scripts/approve_oa_todo_by_fdId.sh <fdId> <动作> [意见]  # Approve by exact fdId (precise)
 ./scripts/sync_oa_todos.sh [limit]            # Sync all todos to /tmp/oa_todos/
 ```
+
+**OA Todo Approval Methods:**
+- **By index**: `approve_oa_todo.sh 5 通过` - Approve the 5th item from query output
+- **By title keyword**: `approve_oa_todo_by_title.sh "QuickBi会议" 参加` - Fuzzy search by title
+- **By fdId**: `approve_oa_todo_by_fdId.sh "19bba01cb5a30a6668fdc15413daa5da" 通过` - Exact match, fastest
 
 ### Approval Actions
 
@@ -103,7 +109,20 @@ Valid for: ~30 minutes (depends on OA system session timeout)
 
 - **Expense approval logs**: `/tmp/oa_approve_<单号>.log`
 - **Batch results**: `/tmp/oa_batch_results.csv`
-- **OA todo sync**: `/tmp/oa_todos/` directory with index.txt, summary.txt, and per-todo detail files
+- **OA todo sync**: `/tmp/oa_todos/` directory with:
+  - `index.txt` - Index file: `fdId|title|href` (one per line)
+  - `summary.txt` - Sync summary report
+  - `[fdId]/detail.txt` - Per-todo detail (page content + snapshot)
+  - `[fdId]/snapshot.txt` - Page snapshot
+  - `[fdId]/screenshot.png` - Page screenshot
+
+**Index file format:**
+```
+19bba01cb5a30a6668fdc15413daa5da|邀请您参加会议：QuickBi会议|/sys/notify/sys_notify_todo/sysNotifyTodo.do?method=view&fdId=19bba01cb5a30a6668fdc15413daa5da
+1973435176269e7aec5a2fd4c13b002a|请审批[运维中心]张凯旋提交的流程：阿里云大数据架构探讨|/sys/notify/sys_notify_todo/sysNotifyTodo.do?method=view&fdId=1973435176269e7aec5a2fd4c13b002a
+```
+
+The `approve_oa_todo_by_fdId.sh` script uses exact fdId matching (`grep "^${FDID}|"`) for precise lookup, while `approve_oa_todo_by_title.sh` uses fuzzy grep matching on titles.
 
 ## Debugging
 
@@ -122,6 +141,20 @@ All scripts set `TZ=Asia/Shanghai` for consistent Beijing/Shanghai time.
 - All scripts source `check_dependencies.sh` for dependency checking
 - Session names use nanosecond timestamps for uniqueness: `$(date +%s%N)`
 - All scripts close their session before exiting
+
+## Todo Type Detection
+
+OA system todos come in two types, requiring different approval workflows:
+
+1. **会议安排** (Meeting) - Actions: 参加, 不参加
+2. **流程管理** (Workflow) - Actions: 通过, 驳回, 转办
+
+**Detection approach** (used in `approve_oa_todo_by_fdId.sh`):
+1. First, check title prefix: "邀请您参加会议" → meeting, "请审批" → workflow
+2. If title is inconclusive, analyze page content for keywords
+3. This two-step approach reduces page load and parsing overhead
+
+Direct URL opening (via href from index.txt) bypasses OA UI navigation, making `approve_oa_todo_by_fdId.sh` the fastest approval method when fdId is known.
 
 ## Common Development Tasks
 

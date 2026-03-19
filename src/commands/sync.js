@@ -64,33 +64,40 @@ const getTodosScript = `
 })()
 `;
 
-// JavaScript 代码：点击下一页
-const clickNextScript = `
-(() => {
-  const nextBtn = document.querySelector('.lui_paging_t_hasnext:not(.lui_paging_t_hasnext_n)');
-  if (nextBtn && nextBtn.offsetParent !== null) {
-    nextBtn.click();
-    return { success: true, clicked: true };
-  }
-  return { success: false, clicked: false };
-})()
-`;
-
 async function sync(options) {
   const spinner = ora('正在同步待办...').start();
-  
+
+  // 调试模式相关变量
+  const debugPagination = options.debugPagination || false; // 默认关闭
+  const debugDir = debugPagination ? '/tmp/oa_pagination_debug' : null;
+  if (debugPagination && !fs.existsSync(debugDir)) {
+    fs.mkdirSync(debugDir, { recursive: true });
+  }
+
+  // 恢复模式相关变量
+  let startPage = options.resumeFrom ? parseInt(options.resumeFrom) : 1;
+  if (startPage < 1) startPage = 1;
+
+  // 调试信息收集
+  const debugInfo = {
+    startTime: new Date().toISOString(),
+    errors: [],
+    paginationIssues: [],
+    agentBrowserParams: []
+  };
+
   try {
     // 初始化数据库
     const db = new Database(options.config.dbPath);
     await db.init();
-    
+
     // 检查浏览器工具
-    const browser = new Browser(options.config);
-    
+    const browser = new Browser(options.config, { debugMode: debugPagination });
+
     // 检查登录状态
     spinner.text = '检查登录状态...';
     let loginStatus = await browser.checkLoginValid();
-    
+
     if (options.login || !loginStatus.valid) {
       spinner.text = '需要重新登录...';
       if (!process.env.OA_USER_NAME || !process.env.OA_USER_PASSWD) {
@@ -100,81 +107,170 @@ async function sync(options) {
         console.log('  OA_USER_PASSWD=你的密码');
         process.exit(1);
       }
-      
+
       await browser.login();
       loginStatus = await browser.checkLoginValid();
     }
-    
+
     spinner.succeed(`登录状态有效（剩余约 ${loginStatus.remaining} 分钟）`);
     spinner.start('加载登录状态...');
-    
+
     // 加载登录状态
     await browser.loadState();
     spinner.succeed('登录状态已加载');
-    
+
     // 打开OA系统
     spinner.start('打开OA系统...');
     await browser.open('https://oa.xgd.com');
     spinner.succeed('已进入OA系统');
-    
+
     // 打开待办页面
     spinner.start('打开待办页面...');
     const todoUrl = 'https://oa.xgd.com/xgd/reviewperson/person_todo/todo.jsp?fdModelName=&nodeType=node&&dataType=todo&s_path=%E6%90%9C%E7%B4%A2%E7%B1%BB%E3%80%80%3E%E3%80%80%E6%89%80%E6%9C%89%E5%8A%9E%E5%85%AC%E5%8F%B0%E6%90%9C%E7%B4%A2%E3%80%80%3E%E3%80%80%E6%89%80%E6%9C%89%E5%8A%9E%E5%85%AC%E5%8F%B0&s_css=default';
     await browser.open(todoUrl);
-    
+
     // 等待页面加载
     await new Promise(resolve => setTimeout(resolve, 5000));
     await browser.waitForLoad();
     await new Promise(resolve => setTimeout(resolve, 3000));
     spinner.succeed('已打开待办页面');
-    
+
     // 翻页获取所有待办
     spinner.start('正在获取待办列表...');
-    
+
     let totalCount = 0;
     let newCount = 0;
     let updateCount = 0;
-    let pageNum = 1;
+    let skipCount = 0;
+    let resetCount = 0;
+    let pageNum = startPage;
     let hasMore = true;
-    
+    let lastPageFdid = null; // 用于检测页面是否变化
+    let emptyPageCount = 0;  // 连续空页面计数
+    const maxEmptyPages = 2; // 最大连续空页面数
+    let samePageRetryCount = 0; // 页面内容未变化重试计数
+    const maxSamePageRetries = 3; // 最大重试次数
+
+    // 如果从中间页开始，需要先翻到目标页
+    if (startPage > 1) {
+      spinner.text = `正在跳转到第 ${startPage} 页...`;
+      for (let i = 1; i < startPage; i++) {
+        const clickResult = await browser.clickNextPage();
+        if (!clickResult.clicked) {
+          spinner.warn(`无法跳转到第 ${startPage} 页，将从第 1 页开始`);
+          if (debugPagination) {
+            debugInfo.paginationIssues.push({
+              type: 'resume_page_failed',
+              page: i,
+              targetPage: startPage,
+              details: clickResult.debug
+            });
+          }
+          pageNum = 1;
+          startPage = 1;
+          // 重新打开待办页面
+          await browser.open(todoUrl);
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          await browser.waitForLoad();
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        await browser.waitForLoad();
+      }
+    }
+
     while (hasMore) {
       if (options.limit > 0 && totalCount >= options.limit) {
         spinner.info(`已达到限制数量 (${options.limit})`);
         break;
       }
-      
+
       spinner.text = `正在获取第 ${pageNum} 页... (已获取 ${totalCount} 条)`;
-      
-      // 使用 evalWithFile 获取待办列表（避免JSON截断）
-      const result = await browser.evalWithFile(getTodosScript, `todos_page_${pageNum}`);
-      
+
+      // 调试模式：保存截图
+      if (debugPagination) {
+        const screenshotPath = path.join(debugDir, `page_${pageNum}_before.png`);
+        await browser.screenshot(screenshotPath);
+      }
+
+      // 使用增强的 evalWithFile 获取待办列表
+      const result = await browser.evalWithFile(getTodosScript, `todos_page_${pageNum}`, {
+        maxRetries: 3,
+        debug: debugPagination
+      });
+
       if (!result.success) {
         spinner.fail('获取待办列表失败');
         break;
       }
-      
+
       console.log(chalk.gray(`   本页待办数: ${result.count}`));
-      
+
       if (result.count === 0) {
-        spinner.info('没有更多待办');
-        break;
+        emptyPageCount++;
+        if (emptyPageCount >= maxEmptyPages) {
+          spinner.warn(`连续 ${maxEmptyPages} 页为空，停止翻页`);
+          break;
+        }
+      } else {
+        emptyPageCount = 0;
       }
-      
+
+      // 检查页面是否真的变化了（通过比较第一个fdId）
+      const currentFirstFdid = result.todos.length > 0 ? result.todos[0].fdId : null;
+      if (pageNum > startPage && currentFirstFdid === lastPageFdid) {
+        samePageRetryCount++;
+        if (samePageRetryCount >= maxSamePageRetries) {
+          console.log(chalk.yellow(`   ⚠️  连续 ${maxSamePageRetries} 次页面内容未变化，可能已到最后一页`));
+          console.log(chalk.gray('   ✅ 停止翻页'));
+          if (debugPagination) {
+            debugInfo.paginationIssues.push({
+              type: 'page_content_unchanged_max_retries',
+              page: pageNum,
+              firstFdId: currentFirstFdid,
+              retries: samePageRetryCount
+            });
+          }
+          break;
+        }
+        console.log(chalk.yellow(`   ⚠️  页面内容未变化 (${samePageRetryCount}/${maxSamePageRetries})，重试翻页...`));
+        // 重试翻页
+        const clickResult = await browser.clickNextPage();
+        if (clickResult.clicked) {
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          await browser.waitForLoad();
+          continue;
+        } else {
+          console.log(chalk.gray('   ✅ 已到最后一页'));
+          if (debugPagination) {
+            debugInfo.paginationIssues.push({
+              type: 'page_content_unchanged',
+              page: pageNum,
+              firstFdId: currentFirstFdid,
+              details: clickResult.debug
+            });
+          }
+          break;
+        }
+      }
+      samePageRetryCount = 0; // 重置计数器
+      lastPageFdid = currentFirstFdid;
+
       // 保存待办
       for (const todo of result.todos) {
         if (options.limit > 0 && totalCount >= options.limit) {
           break;
         }
-        
+
         if (!todo.fdId) {
           console.log(chalk.yellow(`   ⚠️  无法提取fdId: ${todo.title.substring(0, 40)}...`));
           continue;
         }
-        
+
         totalCount++;
-        
+
         const parsed = parseTitle(todo.title);
-        
+
         const todoData = {
           fd_id: todo.fdId,
           title: todo.title,
@@ -184,10 +280,36 @@ async function sync(options) {
           submitter: parsed.submitter,
           raw_data: todo
         };
-        
+
         // 检查是否已存在
         const existing = await db.getTodo(todo.fdId);
-        
+
+        // 如果已存在且状态为 skip，且没有 --force-update，则跳过
+        if (existing && existing.status === 'skip' && !options.forceUpdate) {
+          skipCount++;
+          console.log(chalk.gray(`   [${totalCount}] 跳过: ${todo.fdId} ${todo.title.substring(0, 50)}... (状态: skip)`));
+          totalCount++;
+          continue;
+        }
+
+        // 如果使用 --force-update 且状态为 skip，重置为 pending
+        if (existing && existing.status === 'skip' && options.forceUpdate) {
+          await db.upsertTodo(todoData);
+          await db.updateStatus(todo.fdId, 'pending', 'sync', '强制更新重置');
+          resetCount++;
+          console.log(chalk.yellow(`   [${totalCount}] 重置: ${todo.fdId} ${todo.title.substring(0, 50)}... (skip → pending)`));
+          totalCount++;
+          // 获取详情（如果需要）
+          if (!options.skipDetail || options.force === todo.fdId) {
+            const shouldFetchDetail = options.force === todo.fdId || !isDetailComplete(options.config, todo.fdId);
+            if (shouldFetchDetail) {
+              spinner.text = `正在获取详情: ${todo.title.substring(0, 30)}...`;
+              await fetchTodoDetail(browser, db, options.config, todoData);
+            }
+          }
+          continue;
+        }
+
         if (existing) {
           await db.upsertTodo(todoData);
           updateCount++;
@@ -197,66 +319,183 @@ async function sync(options) {
           newCount++;
           console.log(chalk.green(`   [${totalCount}] 新增: ${todo.fdId} ${todo.title.substring(0, 50)}...`));
         }
-        
+
         // 获取详情（如果需要）
-        if (options.withDetail || options.force === todo.fdId) {
+        if (!options.skipDetail || options.force === todo.fdId) {
           const shouldFetchDetail = options.force === todo.fdId || !isDetailComplete(options.config, todo.fdId);
-          
+
           if (shouldFetchDetail) {
             spinner.text = `正在获取详情: ${todo.title.substring(0, 30)}...`;
             await fetchTodoDetail(browser, db, options.config, todoData);
           }
         }
       }
-      
-      // 检查是否继续翻页
-      if (result.hasNext) {
-        if (options.limit === 0 || totalCount < options.limit) {
+
+      // 检查是否继续翻页 - 使用增强的 Browser 方法
+      if (options.limit === 0 || totalCount < options.limit) {
+        // 使用 hasNextPage 方法检查（返回详细对象）
+        const hasNextResult = await browser.hasNextPage();
+
+        if (debugPagination) {
+          console.log(chalk.gray(`   分页检测结果: has_next=${hasNextResult.has_next}`));
+          console.log(chalk.gray(`   检测方法: ${JSON.stringify(hasNextResult.methods)}`));
+          // 保存分页检测结果
+          fs.writeFileSync(
+            path.join(debugDir, `page_${pageNum}_hasNext.json`),
+            JSON.stringify(hasNextResult, null, 2)
+          );
+        }
+
+        if (hasNextResult.has_next) {
           console.log(chalk.gray('   翻到下一页...'));
-          
-          // 点击下一页按钮
-          await browser.evalWithFile(clickNextScript, `next_page_${pageNum}`);
-          
+
+          // 使用 clickNextPage 方法点击下一页（返回详细对象）
+          const clickResult = await browser.clickNextPage();
+
+          if (!clickResult.clicked) {
+            console.log(chalk.gray('   ✅ 无法点击下一页'));
+            if (debugPagination) {
+              console.log(chalk.yellow(`   原因: ${clickResult.debug.reason || '未知错误'}`));
+              debugInfo.paginationIssues.push({
+                type: 'click_next_failed',
+                page: pageNum,
+                details: clickResult.debug
+              });
+              // 保存点击失败时的调试信息
+              fs.writeFileSync(
+                path.join(debugDir, `page_${pageNum}_click_failed.json`),
+                JSON.stringify(clickResult, null, 2)
+              );
+            }
+            break;
+          }
+
           pageNum++;
-          await new Promise(resolve => setTimeout(resolve, 3000));
+
+          // 等待页面加载完成
+          await new Promise(resolve => setTimeout(resolve, 4000));
           await browser.waitForLoad();
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          await new Promise(resolve => setTimeout(resolve, 2500));
         } else {
+          console.log(chalk.gray('   ✅ 已到最后一页'));
           break;
         }
       } else {
-        console.log(chalk.gray('   ✅ 已到最后一页'));
         break;
       }
-      
-      // 安全限制：最多20页
-      if (pageNum > 20) {
-        spinner.warn('已达到最大页数限制（20页）');
+
+      // 安全限制：最多50页
+      if (pageNum > 50) {
+        spinner.warn('已达到最大页数限制（50页）');
         break;
       }
     }
-    
+
+    // 保存最后成功获取的页码
+    if (debugPagination || options.resumeFrom) {
+      const statePath = '/tmp/oa_sync_state.json';
+      const stateData = {
+        lastPage: pageNum,
+        totalCount,
+        newCount,
+        updateCount,
+        timestamp: new Date().toISOString()
+      };
+      fs.writeFileSync(statePath, JSON.stringify(stateData, null, 2));
+      console.log(chalk.gray(`\n同步状态已保存到: ${statePath}`));
+    }
+
+    // 保存调试信息
+    if (debugPagination) {
+      debugInfo.endTime = new Date().toISOString();
+      debugInfo.summary = {
+        totalPages: pageNum,
+        totalCount,
+        newCount,
+        updateCount,
+        issues: debugInfo.paginationIssues.length
+      };
+
+      const debugPath = path.join(debugDir, 'sync_debug.json');
+      await browser.saveDebugInfo(debugPath);
+      console.log(chalk.gray(`调试信息已保存到: ${debugPath}`));
+
+      // 保存同步调试信息
+      const syncDebugPath = path.join(debugDir, 'sync_summary.json');
+      fs.writeFileSync(syncDebugPath, JSON.stringify(debugInfo, null, 2));
+      console.log(chalk.gray(`同步摘要已保存到: ${syncDebugPath}`));
+
+      // 如果有问题，打印提示
+      if (debugInfo.paginationIssues.length > 0) {
+        console.log(chalk.yellow(`\n⚠️  发现 ${debugInfo.paginationIssues.length} 个问题，请查看调试信息`));
+      }
+    }
+
     await browser.close();
     await db.close();
-    
+
     spinner.succeed('同步完成！');
-    
+
     // 显示统计
     console.log(chalk.bold('\n📊 同步统计:'));
     console.log(`  总计: ${totalCount} 条`);
     console.log(`  新增: ${chalk.green(newCount)} 条`);
     console.log(`  更新: ${chalk.yellow(updateCount)} 条`);
-    
+    if (skipCount > 0) {
+      console.log(`  跳过: ${chalk.gray(skipCount)} 条 (状态: skip)`);
+    }
+    if (resetCount > 0) {
+      console.log(`  重置: ${chalk.yellow(resetCount)} 条 (skip → pending)`);
+    }
+
     console.log(chalk.gray(`\n数据库: ${options.config.dbPath}`));
-    
+
   } catch (error) {
     spinner.fail('同步失败');
     console.error(chalk.red('\n错误:'), error.message);
-    
+
+    // 保存错误信息和调试数据
+    if (debugPagination) {
+      debugInfo.endTime = new Date().toISOString();
+      debugInfo.fatalError = {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      };
+
+      try {
+        const errorPath = path.join(debugDir, 'error.json');
+        await browser.saveDebugInfo(errorPath);
+        fs.writeFileSync(errorPath, JSON.stringify({
+          ...debugInfo,
+          browserDebug: browser.getDebugInfo()
+        }, null, 2));
+        console.log(chalk.gray(`\n错误信息和调试数据已保存到: ${errorPath}`));
+      } catch (saveError) {
+        console.error(chalk.red('保存调试信息失败:'), saveError.message);
+      }
+
+      // 打印 agent-browser 相关参数供模型分析
+      console.log(chalk.bold('\n📋 Agent-Browser 调试信息:'));
+      const browserDebug = browser.getDebugInfo();
+      console.log(chalk.gray(JSON.stringify(browserDebug, null, 2)));
+    }
+
+    // 保存错误信息
+    if (debugPagination) {
+      const errorPath = path.join(debugDir, 'error.json');
+      fs.writeFileSync(errorPath, JSON.stringify({
+        message: error.message,
+        stack: error.stack,
+        timestamp: new Date().toISOString()
+      }, null, 2));
+      console.log(chalk.gray(`\n错误信息已保存到: ${errorPath}`));
+    }
+
     if (error.stack) {
       console.error(chalk.gray('\n堆栈:'), error.stack);
     }
-    
+
     process.exit(1);
   }
 }
