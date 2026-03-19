@@ -5,7 +5,132 @@ description: 新国都集团OA费控系统审批自动化工具。**必须使用
 
 # OA审批系统自动化
 
-## 🎯 快速选择脚本
+## 🚀 新版 CLI 工具（推荐）
+
+### 安装
+
+```bash
+cd /Users/wangyun/.copaw/active_skills/query-oa-approval
+npm install
+npm link  # 全局安装（可选）
+```
+
+### 快速开始
+
+```bash
+# 同步待办
+oa-todo sync
+
+# 列出待办
+oa-todo list
+
+# 查看详情
+oa-todo show <fdId>
+
+# 审批待办
+oa-todo approve <fdId> 参加
+
+# 查看统计
+oa-todo status
+```
+
+### CLI 命令详解
+
+#### 1. 同步待办
+
+```bash
+# 同步所有待办
+oa-todo sync
+
+# 限制数量（测试用）
+oa-todo sync --limit 10
+
+# 同步并获取详情
+oa-todo sync --with-detail
+
+# 强制更新指定待办
+oa-todo sync --force <fdId>
+```
+
+#### 2. 列出待办
+
+```bash
+# 列出待审核的待办（默认20条）
+oa-todo list
+
+# 显示所有
+oa-todo list --all
+
+# 按状态筛选
+oa-todo list --status pending
+
+# 按类型筛选
+oa-todo list --type meeting
+
+# JSON格式输出
+oa-todo list --json
+```
+
+#### 3. 查看详情
+
+```bash
+# 查看详情
+oa-todo show <fdId>
+
+# 强制刷新详情
+oa-todo show <fdId> --refresh
+```
+
+#### 4. 审批待办
+
+```bash
+# 会议类
+oa-todo approve <fdId> 参加
+oa-todo approve <fdId> 不参加
+
+# 流程类
+oa-todo approve <fdId> 通过
+oa-todo approve <fdId> 驳回
+oa-todo approve <fdId> 转办
+
+# 带审批意见
+oa-todo approve <fdId> 通过 --comment "同意"
+```
+
+#### 5. 查看统计
+
+```bash
+# 总体统计
+oa-todo status
+
+# 按类型统计
+oa-todo status --by-type
+
+# 按状态统计
+oa-todo status --by-status
+```
+
+#### 6. 清理数据
+
+```bash
+# 清理7天前的数据
+oa-todo clean --days 7
+
+# 清理已审批的数据
+oa-todo clean --status approved
+```
+
+### 优势
+
+- ✅ **SQLite数据库**：结构化存储，支持复杂查询
+- ✅ **状态管理**：完整的状态流转记录
+- ✅ **类型识别**：自动从标题识别待办类型
+- ✅ **智能同步**：详情已存在则跳过
+- ✅ **操作日志**：所有操作都有记录
+
+---
+
+## 🎯 旧版脚本（兼容）
 
 ### 费控系统（报销/费用）
 
@@ -25,10 +150,7 @@ description: 新国都集团OA费控系统审批自动化工具。**必须使用
 | **审批OA系统待办（fdId）** | `approve_oa_todo_by_fdId.sh` | `./scripts/approve_oa_todo_by_fdId.sh abc123def456 参加` |
 | **同步所有待办详情** | `sync_oa_todos.sh` | `./scripts/sync_oa_todos.sh` |
 
-**⚠️ 重要**：
-- 费控系统用 `query_approval.sh` 和 `approve.sh`
-- OA系统待办用 `query_oa_todo.sh` 和 `approve_oa_todo.sh`
-- 不要混用！
+**⚠️ 推荐**：使用新版 CLI 工具 `oa-todo`，功能更强大！
 
 ---
 
@@ -58,6 +180,79 @@ description: 新国都集团OA费控系统审批自动化工具。**必须使用
 - `OA_USER_NAME`: OA系统用户名（必需）
 - `OA_USER_PASSWD`: OA系统密码（必需）
 - `OA_STATE_FILE`: 登录状态文件路径（可选，默认: /tmp/oa_login_state.json）
+- `OA_DB_PATH`: 数据库路径（可选，默认: /tmp/oa_todos/oa_todos.db）
+- `OA_TODOS_DIR`: 待办目录（可选，默认: /tmp/oa_todos）
+- `LOGIN_TIMEOUT_MINUTES`: 登录超时时间（可选，默认: 10分钟）
+
+## 数据结构
+
+### 待办类型
+
+- `meeting`: 会议邀请
+- `workflow`: 流程审批
+- `expense`: 报销
+- `ehr`: EHR
+- `unknown`: 未知
+
+### 待办状态
+
+- `skip`: 已跳过（无法处理）
+- `pending`: 待审核
+- `approved`: 已同意
+- `rejected`: 已驳回
+- `transferred`: 已转办
+- `attended`: 已参加
+- `not_attended`: 不参加
+- `other`: 其他
+
+### 支持的审批动作
+
+| 待办类型 | 支持的动作 |
+|---------|-----------|
+| 会议邀请 | 参加、不参加 |
+| 流程审批 | 通过、驳回、转办 |
+| 报销 | 通过、驳回（暂不支持） |
+| EHR | 暂不支持 |
+
+### 数据库表结构
+
+#### todos 表
+
+```sql
+CREATE TABLE todos (
+    fd_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    href TEXT NOT NULL,
+    todo_type TEXT DEFAULT 'unknown',
+    status TEXT DEFAULT 'pending',
+    action TEXT,
+    created_at TEXT,
+    updated_at TEXT,
+    synced_at TEXT,
+    processed_at TEXT,
+    detail_path TEXT,
+    snapshot_path TEXT,
+    screenshot_path TEXT,
+    source_dept TEXT,
+    submitter TEXT,
+    comment TEXT,
+    raw_data TEXT
+);
+```
+
+#### logs 表
+
+```sql
+CREATE TABLE logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fd_id TEXT,
+    action TEXT NOT NULL,
+    old_status TEXT,
+    new_status TEXT,
+    comment TEXT,
+    created_at TEXT
+);
+```
 
 ## 依赖要求
 
