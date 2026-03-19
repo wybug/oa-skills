@@ -10,14 +10,25 @@ const { generateClientCode, breakpoint } = require('./web-extractor');
 class Browser {
   constructor(config, options = {}) {
     this.config = config;
-    this.agentBrowser = options.debugMode ? 'npx agent-browser --headed' : 'npx agent-browser';
-    this.session = `oa-todo-${Date.now()}`;
     this.debugMode = options.debugMode || false;
+    this.session = `oa-todo-${Date.now()}`;
     this.debugInfo = {
       commands: [],
       errors: [],
       snapshots: []
     };
+
+    // 如果是 debug 模式，先关闭现有的 daemon，然后使用 --headed
+    if (this.debugMode) {
+      try {
+        execSync('npx agent-browser close', { timeout: 5000, stdio: 'ignore' });
+      } catch (e) {
+        // 忽略错误，可能没有 daemon 在运行
+      }
+      this.agentBrowser = 'npx agent-browser --headed';
+    } else {
+      this.agentBrowser = 'npx agent-browser';
+    }
   }
 
   async exec(args, options = {}) {
@@ -467,12 +478,27 @@ class Browser {
     fs.writeFileSync(tempFile, code, 'utf-8');
 
     try {
-      const result = await this.exec(`--session ${this.session} eval --stdin < "${tempFile}"`, { timeout: 10000 });
-      return { success: true, result };
+      await this.exec(`--session ${this.session} eval --stdin < "${tempFile}"`, { timeout: 15000 });
+      // 等待代码注入生效
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // 验证注入是否成功
+      const verifyResult = await this.evalWithFile(`typeof window.WebExtractor !== 'undefined' ? 'OK' : 'FAIL'`, `verify_${Date.now()}`);
+
+      if (verifyResult === 'OK') {
+        return { success: true };
+      }
+
+      return { success: false, error: 'WebExtractor not available', verifyResult };
     } catch (error) {
-      // 检查是否已经初始化（eval 返回 success）
-      if (error.stdout && error.stdout.includes('success: true')) {
-        return { success: true, alreadyInitialized: true };
+      // 尝试验证是否已经存在
+      try {
+        const verifyResult = await this.evalWithFile(`typeof window.WebExtractor !== 'undefined' ? 'OK' : 'FAIL'`, `verify_${Date.now()}`);
+        if (verifyResult === 'OK') {
+          return { success: true, alreadyInitialized: true };
+        }
+      } catch (e) {
+        // 忽略验证错误
       }
       return { success: false, error: error.message };
     } finally {
@@ -520,7 +546,15 @@ class Browser {
    */
   async getAllTables() {
     const code = `WebExtractor.DebugHelper.getAllTables()`;
-    return await this.evalWithFile(code, `all_tables_${Date.now()}`);
+    const result = await this.evalWithFile(code, `all_tables_${Date.now()}`);
+
+    // 确保返回的是数组
+    if (!Array.isArray(result)) {
+      console.error(`getAllTables 返回非数组类型: ${typeof result}`, result);
+      return [];
+    }
+
+    return result;
   }
 
   /**

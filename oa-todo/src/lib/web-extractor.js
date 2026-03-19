@@ -12,7 +12,7 @@ const fs = require('fs');
  * 这段代码会被注入到浏览器页面中，提供 WebExtractor 全局对象
  */
 function generateClientCode() {
-  return `
+  return String.raw`
     (function() {
       'use strict';
 
@@ -120,7 +120,7 @@ function generateClientCode() {
             data.forEach(row => {
               // 清理单元格中的换行符和多余空格
               const cleanRow = row.map(cell => {
-                return String(cell).replace(/[\n\r]+/g, ' ').replace(/\s+/g, ' ').trim();
+                return String(cell).replace(/[\\n\\r]+/g, ' ').replace(/\\s+/g, ' ').trim();
               });
               lines.push('| ' + cleanRow.join(' | ') + ' |');
             });

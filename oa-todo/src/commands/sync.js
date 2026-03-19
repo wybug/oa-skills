@@ -72,7 +72,55 @@ async function sync(options) {
     // 初始化数据库
     const db = new Database(options.config.dbPath);
     await db.init();
-    
+
+    // 检查浏览器工具
+    const browser = new Browser(options.config, { debugMode: options.debug });
+
+    // 如果使用 --force <fdId>，直接更新单条详情
+    if (options.force && typeof options.force === 'string') {
+      spinner.text = `正在获取待办详情: ${options.force}...`;
+
+      // 检查登录状态
+      let loginStatus = await browser.checkLoginValid();
+      if (options.login || !loginStatus.valid) {
+        spinner.text = '需要重新登录...';
+        if (!process.env.OA_USER_NAME || !process.env.OA_USER_PASSWD) {
+          spinner.fail('缺少环境变量 OA_USER_NAME 或 OA_USER_PASSWD');
+          console.log(chalk.yellow('\n请在 CoPaw 的 Environments 中配置:'));
+          console.log('  OA_USER_NAME=你的用户名');
+          console.log('  OA_USER_PASSWD=你的密码');
+          process.exit(1);
+        }
+        await browser.login();
+        loginStatus = await browser.checkLoginValid();
+      }
+
+      spinner.succeed(`登录状态有效（剩余约 ${loginStatus.remaining} 分钟）`);
+
+      // 从数据库获取待办信息
+      const todo = await db.getTodo(options.force);
+      if (!todo) {
+        spinner.fail(`待办不存在: ${options.force}`);
+        console.log(chalk.gray('\n💡 提示: 使用 "oa-todo list" 查看本地待办'));
+        await db.close();
+        await browser.close();
+        return;
+      }
+
+      // 加载登录状态并获取详情
+      await browser.loadState();
+      await fetchTodoDetail(browser, db, options.config, todo);
+
+      spinner.succeed('详情更新完成！');
+      console.log(chalk.gray(`\n待办ID: ${todo.fd_id}`));
+      console.log(chalk.gray(`标题: ${todo.title}`));
+      console.log(chalk.gray(`\n详情路径: ${todo.detail_path}`));
+
+      await browser.close();
+      await db.close();
+      return;
+    }
+
     // 检查本地是否有待办数据
     if (!options.force) {
       const existingTodos = await db.getTodos({ limit: 1 });
@@ -82,12 +130,10 @@ async function sync(options) {
         console.log(chalk.gray('\n💡 提示: 使用 "oa-todo list" 查看本地待办'));
         console.log(chalk.gray('   如需强制同步，请使用: oa-todo sync --force\n'));
         await db.close();
+        await browser.close();
         return;
       }
     }
-
-    // 检查浏览器工具
-    const browser = new Browser(options.config, { debugMode: options.debug });
 
     // 检查登录状态
     spinner.text = '检查登录状态...';
@@ -376,10 +422,29 @@ async function fetchTodoDetail(browser, db, config, todo) {
   await new Promise(resolve => setTimeout(resolve, 2000));
 
   // 初始化工具库
-  await browser.initExtractor();
+  const initResult = await browser.initExtractor();
+  if (!initResult.success) {
+    console.error(`初始化 WebExtractor 失败: ${initResult.error || '未知错误'}`);
+    // 保存快照用于调试
+    const snapshot = await browser.snapshot();
+    const snapshotPath = path.join(detailDir, 'snapshot.txt');
+    fs.writeFileSync(snapshotPath, snapshot, 'utf-8');
+    return;
+  }
 
   // 获取所有表格概览
   const allTables = await browser.getAllTables();
+
+  // 检查返回的数据格式
+  if (!Array.isArray(allTables)) {
+    console.error(`getAllTables 返回格式错误，期望数组，实际类型: ${typeof allTables}`);
+    console.error(`返回值:`, JSON.stringify(allTables, null, 2));
+    // 保存快照用于调试
+    const snapshot = await browser.snapshot();
+    const snapshotPath = path.join(detailDir, 'snapshot.txt');
+    fs.writeFileSync(snapshotPath, snapshot, 'utf-8');
+    return;
+  }
 
   // 根据待办类型使用不同的提取策略
   let formInfo = {};
