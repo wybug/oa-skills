@@ -15,18 +15,24 @@ async function list(options) {
     
     // 构建查询条件
     const filters = {};
-    
+
     // 默认只显示待审核状态（除非明确指定了其他状态或使用 --all）
     if (options.status) {
       filters.status = options.status;
     } else if (!options.all) {
       filters.status = 'pending';  // 默认只显示待审核
     }
-    
+
     if (options.type) {
       filters.type = options.type;
     }
-    
+
+    // 支持按接收时间排序
+    if (options.sortReceived) {
+      filters.orderBy = 'received_at';
+      filters.orderDir = options.sortReceived === 'asc' ? 'ASC' : 'DESC';
+    }
+
     if (!options.all) {
       filters.limit = options.limit || 20;
     }
@@ -47,37 +53,34 @@ async function list(options) {
       return;
     }
     
-    // 表格输出
+    // 表格输出 - 优化显示关键信息：ID、标题、提交人、接收时间
     const table = new Table({
       head: [
         chalk.cyan('#'),
         chalk.cyan('ID (完整)'),
-        chalk.cyan('类型'),
-        chalk.cyan('状态'),
         chalk.cyan('标题'),
         chalk.cyan('提交人'),
-        chalk.cyan('同步时间')
+        chalk.cyan('接收时间')
       ],
-      colWidths: [4, 34, 10, 10, 60, 20, 20],
+      colWidths: [4, 34, 60, 20, 20],
       wordWrap: true
     });
-    
+
     todos.forEach((todo, index) => {
       const statusColor = STATUS_COLORS[todo.status] || 'white';
-      const typeName = TYPE_NAMES[todo.todo_type] || '未知';
-      const statusName = STATUS_NAMES[todo.status] || todo.status;
-      
-      // 提取提交人信息（从source_dept或submitter字段）
-      const submitter = todo.submitter || todo.source_dept || '-';
-      
+
+      // 提取提交人信息（从submitter字段）
+      const submitter = todo.submitter || '-';
+
+      // 使用接收时间（received_at），这是待办实际到达的时间
+      const receivedTime = todo.received_at || todo.synced_at || '-';
+
       table.push([
         index + 1,
         todo.fd_id,  // 显示完整ID
-        typeName,
-        chalk[statusColor](statusName),
         todo.title,  // 显示完整标题（自动换行）
         submitter,
-        todo.synced_at ? formatTime(todo.synced_at) : '-'
+        receivedTime ? formatTime(receivedTime) : '-'
       ]);
     });
     

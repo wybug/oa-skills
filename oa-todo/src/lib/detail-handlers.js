@@ -47,14 +47,22 @@ class BaseDetailHandler {
    */
   async handle(allTables) {
     const formData = await this.extractFormData(allTables);
-    const isApprovable = await this.isApprovable();
+    const approvableResult = await this.isApprovable();
+
+    // 兼容旧格式（返回布尔值）和新格式（返回对象）
+    const isApprovable = typeof approvableResult === 'object'
+      ? approvableResult.approvable
+      : approvableResult;
+    const reason = typeof approvableResult === 'object'
+      ? approvableResult.reason
+      : (isApprovable ? null : '详情页无可审批按钮');
 
     return {
       type: this.todo.todo_type,
       formData: formData,
       isApprovable: isApprovable,
       supportedActions: this.getSupportedActions(),
-      reason: isApprovable ? null : '详情页无可审批按钮'
+      reason: reason
     };
   }
 }
@@ -110,9 +118,30 @@ class MeetingDetailHandler extends BaseDetailHandler {
 
   async isApprovable() {
     const snapshot = await this.browser.snapshot();
+
+    // 检查会议是否已结束/已开始/不能回执等状态
+    const processedPatterns = [
+      '已召开',
+      '已结束',
+      '会议已开始',
+      '不能进行回执',
+      '已过期'
+    ];
+
+    const isProcessed = processedPatterns.some(pattern => snapshot.includes(pattern));
+
+    // 检查是否有回执选项
     const hasOptions = snapshot.includes('参加') || snapshot.includes('不参加');
-    const isProcessed = snapshot.includes('已召开') || snapshot.includes('已结束');
-    return hasOptions && !isProcessed;
+
+    if (isProcessed) {
+      return { approvable: false, reason: '会议已结束或已开始，无法回执' };
+    }
+
+    if (!hasOptions) {
+      return { approvable: false, reason: '无可用的回执选项' };
+    }
+
+    return { approvable: true };
   }
 }
 
@@ -170,6 +199,51 @@ class EhrDetailHandler extends BaseDetailHandler {
 
   getSupportedActions() {
     return ['同意', '不同意'];
+  }
+
+  /**
+   * 检查 EHR 审批是否可审批
+   * 通过检查"状态"字段判断是否已审批完成
+   */
+  async isApprovable() {
+    const snapshot = await this.browser.snapshot();
+
+    // 优先检查：如果只有工作流历史中的"同意。"（带句号），则无可审批按钮
+    // 工作流历史显示为 StaticText "同意。" 或 "提交。"（带句号）
+    // 实际按钮显示为 button "同意" 或 button "不同意"
+    const hasWorkflowHistoryOnly = snapshot.includes('同意。') || snapshot.includes('提交。');
+    const hasActualButton = /button\s+"(同意|不同意)"/.test(snapshot);
+
+    // 如果有工作流历史但没有实际按钮，说明流程已处理完成
+    if (hasWorkflowHistoryOnly && !hasActualButton) {
+      return { approvable: false, reason: '流程已审批完成' };
+    }
+
+    // 检查是否已审批完成 - 查找状态相关的模式
+    // EHR 系统可能有不同的状态显示格式
+    const statusPatterns = [
+      /审批状态[\s\S]*?StaticText "(通过|已同意|已审批)"/,  // "审批状态" + 通过
+      /状态[：:]\s*通过/,           // "状态: 通过"
+      /状态[：:]\s*已同意/,         // "状态: 已同意"
+      /状态[：:]\s*已审批/,         // "状态: 已审批"
+      /StaticText "状态"[\s\S]{0,500}?StaticText "(通过|已同意|已审批)"/,  // 快照格式（放宽距离限制）
+      // 简单文本匹配（作为后备）
+      /审批状态.*通过/,
+      /状态.*通过/,
+    ];
+
+    for (const pattern of statusPatterns) {
+      if (pattern.test(snapshot)) {
+        return { approvable: false, reason: '流程已审批完成' };
+      }
+    }
+
+    // 检查是否有审批按钮（实际按钮元素）
+    if (!hasActualButton) {
+      return { approvable: false, reason: '无可审批按钮' };
+    }
+
+    return { approvable: true };
   }
 }
 

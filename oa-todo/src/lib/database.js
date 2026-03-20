@@ -57,7 +57,8 @@ class Database {
         source_dept TEXT,
         submitter TEXT,
         comment TEXT,
-        raw_data TEXT
+        raw_data TEXT,
+        received_at TEXT
       )
     `;
 
@@ -77,6 +78,7 @@ class Database {
       'CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status)',
       'CREATE INDEX IF NOT EXISTS idx_todos_type ON todos(todo_type)',
       'CREATE INDEX IF NOT EXISTS idx_todos_synced ON todos(synced_at)',
+      'CREATE INDEX IF NOT EXISTS idx_todos_received_at ON todos(received_at)',
       'CREATE INDEX IF NOT EXISTS idx_logs_fd_id ON logs(fd_id)'
     ];
 
@@ -138,8 +140,8 @@ class Database {
    */
   async upsertTodo(todo) {
     const sql = `
-      INSERT INTO todos (fd_id, title, href, todo_type, status, source_dept, submitter, synced_at, raw_data)
-      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'), ?)
+      INSERT INTO todos (fd_id, title, href, todo_type, status, source_dept, submitter, synced_at, raw_data, received_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'), ?, ?)
       ON CONFLICT(fd_id) DO UPDATE SET
         title = excluded.title,
         href = excluded.href,
@@ -148,6 +150,7 @@ class Database {
         submitter = excluded.submitter,
         synced_at = datetime('now', 'localtime'),
         raw_data = excluded.raw_data,
+        received_at = excluded.received_at,
         updated_at = datetime('now', 'localtime')
     `;
 
@@ -159,7 +162,8 @@ class Database {
       todo.status || TODO_STATUS.PENDING,
       todo.source_dept,
       todo.submitter,
-      todo.raw_data ? JSON.stringify(todo.raw_data) : null
+      todo.raw_data ? JSON.stringify(todo.raw_data) : null,
+      todo.received_at || null
     ]);
   }
 
@@ -202,7 +206,10 @@ class Database {
       params.push(filters.type);
     }
 
-    sql += ' ORDER BY created_at DESC';
+    // 支持按接收时间或创建时间排序
+    const orderBy = filters.orderBy || 'created_at';
+    const orderDir = filters.orderDir || 'DESC';
+    sql += ` ORDER BY ${orderBy} ${orderDir}`;
 
     if (filters.limit) {
       sql += ' LIMIT ?';

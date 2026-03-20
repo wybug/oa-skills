@@ -121,20 +121,6 @@ async function sync(options) {
       return;
     }
 
-    // 检查本地是否有待办数据
-    if (!options.force) {
-      const existingTodos = await db.getTodos({ limit: 1 });
-      if (existingTodos.length > 0) {
-        const total = await db.getTodoCount();
-        spinner.info(`本地已有 ${total} 条待办数据`);
-        console.log(chalk.gray('\n💡 提示: 使用 "oa-todo list" 查看本地待办'));
-        console.log(chalk.gray('   如需强制同步，请使用: oa-todo sync --force\n'));
-        await db.close();
-        await browser.close();
-        return;
-      }
-    }
-
     // 检查登录状态
     spinner.text = '检查登录状态...';
     let loginStatus = await browser.checkLoginValid();
@@ -260,6 +246,11 @@ async function sync(options) {
 
         totalCount++;
 
+        // 从 cells 数组提取发起人和接收时间
+        const submitterFromCells = todo.cells[6] || null;
+        const receivedAt = todo.cells[7] || null;
+
+        // 保留从标题解析的信息作为后备
         const parsed = parseTitle(todo.title);
 
         const todoData = {
@@ -268,7 +259,8 @@ async function sync(options) {
           href: todo.href,
           todo_type: parsed.type,
           source_dept: parsed.sourceDept,
-          submitter: parsed.submitter,
+          submitter: submitterFromCells || parsed.submitter,  // cells[6] 优先，标题解析作为后备
+          received_at: receivedAt,  // 新增：接收时间
           raw_data: todo
         };
 
@@ -292,7 +284,7 @@ async function sync(options) {
           totalCount++;
           // 获取详情（如果需要）
           if (!options.skipDetail || options.force === todo.fdId) {
-            const shouldFetchDetail = options.force === todo.fdId || !isDetailComplete(options.config, todo.fdId);
+            const shouldFetchDetail = options.force === todo.fdId || !isDetailComplete(existing);
             if (shouldFetchDetail) {
               spinner.text = `正在获取详情: ${todo.title.substring(0, 30)}...`;
               await fetchTodoDetail(browser, db, options.config, todoData);
@@ -313,7 +305,7 @@ async function sync(options) {
 
         // 获取详情（如果需要）
         if (!options.skipDetail || options.force === todo.fdId) {
-          const shouldFetchDetail = options.force === todo.fdId || !isDetailComplete(options.config, todo.fdId);
+          const shouldFetchDetail = options.force === todo.fdId || !isDetailComplete(existing);
 
           if (shouldFetchDetail) {
             spinner.text = `正在获取详情: ${todo.title.substring(0, 30)}...`;
@@ -391,13 +383,15 @@ async function sync(options) {
 }
 
 /**
- * 判断详情是否完整
+ * 判断详情是否完整（基于数据库字段）
+ * @param {Object} todo - 数据库中的待办记录
+ * @returns {boolean} 如果所有明细路径字段都已填充则返回 true
  */
-function isDetailComplete(config, fdId) {
-  const detailPath = path.join(config.detailsDir, fdId, 'detail.txt');
-  const screenshotPath = path.join(config.detailsDir, fdId, 'screenshot.png');
-  
-  return fs.existsSync(detailPath) && fs.existsSync(screenshotPath);
+function isDetailComplete(todo) {
+  // 检查数据库中的明细路径字段是否都已填充
+  return todo.detail_path &&
+         todo.snapshot_path &&
+         todo.screenshot_path;
 }
 
 /**
@@ -416,7 +410,8 @@ async function fetchTodoDetail(browser, db, config, todo) {
 
   // 打开详情页面
   const url = todo.href.startsWith('http') ? todo.href : `https://oa.xgd.com${todo.href}`;
-  await browser.open(url);
+  // 详情页面可能需要更长的加载时间，使用30秒超时
+  await browser.open(url, 30000);
 
   // 额外等待确保页面完全加载
   await new Promise(resolve => setTimeout(resolve, 2000));
@@ -424,7 +419,8 @@ async function fetchTodoDetail(browser, db, config, todo) {
   // 初始化工具库
   const initResult = await browser.initExtractor();
   if (!initResult.success) {
-    console.error(`初始化 WebExtractor 失败: ${initResult.error || '未知错误'}`);
+    console.error(`${chalk.red('[ERROR]')} 初始化 WebExtractor 失败: ${initResult.error || '未知错误'}`);
+    console.error(`${chalk.gray('  详情:')} fdId=${todo.fd_id}, type=${todo.todo_type}, title=${todo.title.substring(0, 30)}...`);
     // 保存快照用于调试
     const snapshot = await browser.snapshot();
     const snapshotPath = path.join(detailDir, 'snapshot.txt');
@@ -437,8 +433,8 @@ async function fetchTodoDetail(browser, db, config, todo) {
 
   // 检查返回的数据格式
   if (!Array.isArray(allTables)) {
-    console.error(`getAllTables 返回格式错误，期望数组，实际类型: ${typeof allTables}`);
-    console.error(`返回值:`, JSON.stringify(allTables, null, 2));
+    console.error(`${chalk.red('[ERROR]')} getAllTables 返回格式错误，期望数组，实际类型: ${typeof allTables}`);
+    console.error(`${chalk.gray('  详情:')} fdId=${todo.fd_id}, type=${todo.todo_type}`);
     // 保存快照用于调试
     const snapshot = await browser.snapshot();
     const snapshotPath = path.join(detailDir, 'snapshot.txt');

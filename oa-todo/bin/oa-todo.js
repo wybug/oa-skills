@@ -9,17 +9,20 @@ const { program } = require('commander');
 const chalk = require('chalk');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 // 设置版本
 const packageJson = require('../package.json');
 program.version(packageJson.version);
 
 // 配置
+const homedir = os.homedir();
+
 const config = {
-  dbPath: process.env.OA_DB_PATH || '/tmp/oa_todos/oa_todos.db',
-  todosDir: process.env.OA_TODOS_DIR || '/tmp/oa_todos',
-  detailsDir: process.env.OA_DETAILS_DIR || '/tmp/oa_todos/details',
-  stateFile: process.env.OA_STATE_FILE || '/tmp/oa_login_state.json',
+  dbPath: process.env.OA_DB_PATH || path.join(homedir, '.oa-todo', 'oa_todos.db'),
+  todosDir: process.env.OA_TODOS_DIR || path.join(homedir, '.oa-todo'),
+  detailsDir: process.env.OA_DETAILS_DIR || path.join(homedir, '.oa-todo', 'details'),
+  stateFile: process.env.OA_STATE_FILE || path.join(homedir, '.oa-todo', 'login_state.json'),
   loginTimeout: parseInt(process.env.LOGIN_TIMEOUT_MINUTES || '25', 10)
 };
 
@@ -52,6 +55,45 @@ program
   .option('--force-update', '强制更新 skip 状态的待办（重置为 pending）', false)
   .option('--skip-detail', '跳过详情获取', false)
   .option('--login', '强制重新登录', false)
+  .addHelpText('after', `
+
+常用示例:
+  oa-todo sync                      同步所有待办（首次或数据库为空时）
+  oa-todo sync --limit 10           只同步前10条待办
+  oa-todo sync --force abc123       强制刷新指定待办的详情
+  oa-todo sync --skip-detail        仅同步列表，不获取详情（更快）
+  oa-todo sync --login              强制重新登录后同步
+  oa-todo sync --force-update       将 skip 状态的待办重置为 pending
+
+选项说明:
+  --limit <n>       限制同步的待办数量，0 表示不限制
+  --force <fdId>    仅更新指定 fdId 的待办详情，不执行列表同步
+  --force-update    强制本地与远程同步，将 "skip" 状态重置为 "pending"
+  --skip-detail     只同步待办列表，不获取每条的详情信息
+  --login           忽略缓存的登录状态，强制重新登录
+
+工作原理:
+  1. 检查登录状态，过期则自动重新登录
+  2. 翻页获取所有待办列表（最多50页）
+  3. 对每条待办获取详情页面，提取结构化数据
+  4. 保存到本地数据库 (~/.oa-todo/oa_todos.db)
+  5. 默认更新待办状态记录（如标题变化）
+
+skip 状态机制:
+  - 获取审批明细时，如果页面无对应审批按钮（不同待办类型按钮不同），
+    自动将该记录状态更新为 "skip"
+  - skip 状态的待办在后续同步中会被自动跳过
+  - 使用 --force-update 可强制将 skip 状态重置为 pending 并重新同步
+
+待办类型与审批按钮:
+  - 会议邀请 (meeting):   参加、不参加
+  - EHR假期 (ehr):        同意、不同意
+  - 费用报销 (expense):   同意、驳回
+  - 通用流程 (workflow):  通过、驳回、转办
+
+输出统计:
+  同步完成后显示: 总计、新增、更新、跳过、重置 数量
+  `)
   .action(async (options) => {
     const sync = require('../src/commands/sync');
     // 合并全局 debug 选项
@@ -72,6 +114,7 @@ program
   .option('--limit <n>', '显示数量', parseInt, 20)
   .option('--all', '显示所有', false)
   .option('--json', 'JSON格式输出', false)
+  .option('--sort-received <dir>', '按接收时间排序 (desc/asc)', 'desc')
   .action(async (options) => {
     const list = require('../src/commands/list');
     await list({ ...options, config });

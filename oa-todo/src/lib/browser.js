@@ -850,6 +850,9 @@ class Browser {
   }
 
   async approveMeeting(action) {
+    // 等待页面完全渲染（移动网络可能需要更长时间）
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
     // 参考 approve_oa_todo_by_fdId.sh 的会议审批实现
     const selectActionJs = `(() => {
       const action = "${action}";
@@ -870,7 +873,7 @@ class Browser {
 
     const selectFile = `/tmp/approve_meeting_select_${Date.now()}.js`;
     fs.writeFileSync(selectFile, selectActionJs, 'utf-8');
-    const selectResult = await this.exec(`--session ${this.session} eval --stdin < "${selectFile}"`, { timeout: 10000 });
+    const selectResult = await this.exec(`--session ${this.session} eval --stdin < "${selectFile}"`, { timeout: 30000 });
     fs.unlinkSync(selectFile);
 
     const successMarker = JSON.stringify({ success: true });
@@ -900,7 +903,7 @@ class Browser {
 
     const submitFile = `/tmp/approve_meeting_submit_${Date.now()}.js`;
     fs.writeFileSync(submitFile, submitJs, 'utf-8');
-    const submitResult = await this.exec(`--session ${this.session} eval --stdin < "${submitFile}"`, { timeout: 10000 });
+    const submitResult = await this.exec(`--session ${this.session} eval --stdin < "${submitFile}"`, { timeout: 30000 });
     fs.unlinkSync(submitFile);
 
     if (!this._checkSuccess(submitResult)) {
@@ -912,6 +915,9 @@ class Browser {
   }
 
   async approveEhr(action, comment = '') {
+    // 等待页面完全渲染（移动网络可能需要更长时间）
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
     // EHR 使用"同意"/"不同意"按钮
     const selectActionJs = `
       (() => {
@@ -933,7 +939,7 @@ class Browser {
 
     const selectFile = `/tmp/approve_ehr_select_${Date.now()}.js`;
     fs.writeFileSync(selectFile, selectActionJs, 'utf-8');
-    const selectResult = await this.exec(`--session ${this.session} eval --stdin < "${selectFile}"`, { timeout: 10000 });
+    const selectResult = await this.exec(`--session ${this.session} eval --stdin < "${selectFile}"`, { timeout: 30000 });
     fs.unlinkSync(selectFile);
 
     if (!this._checkSuccess(selectResult)) {
@@ -964,7 +970,7 @@ class Browser {
 
     const submitFile = `/tmp/approve_ehr_submit_${Date.now()}.js`;
     fs.writeFileSync(submitFile, submitJs, 'utf-8');
-    const submitResult = await this.exec(`--session ${this.session} eval --stdin < "${submitFile}"`, { timeout: 10000 });
+    const submitResult = await this.exec(`--session ${this.session} eval --stdin < "${submitFile}"`, { timeout: 30000 });
     fs.unlinkSync(submitFile);
 
     if (!this._checkSuccess(submitResult)) {
@@ -976,6 +982,9 @@ class Browser {
   }
 
   async approveExpense(action, comment = '') {
+    // 等待页面完全渲染（移动网络可能需要更长时间）
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
     // 步骤1: 点击审批按钮
     const clickScript = `
       (() => {
@@ -997,7 +1006,7 @@ class Browser {
 
     const clickFile = `/tmp/approve_expense_click_${Date.now()}.js`;
     fs.writeFileSync(clickFile, clickScript, 'utf-8');
-    const clickResult = await this.exec(`--session ${this.session} eval --stdin < "${clickFile}"`, { timeout: 10000 });
+    const clickResult = await this.exec(`--session ${this.session} eval --stdin < "${clickFile}"`, { timeout: 30000 });
     fs.unlinkSync(clickFile);
 
     const successMarker = JSON.stringify({ success: true });
@@ -1020,7 +1029,7 @@ class Browser {
       `;
       const commentFile = `/tmp/approve_expense_comment_${Date.now()}.js`;
       fs.writeFileSync(commentFile, commentScript, 'utf-8');
-      await this.exec(`--session ${this.session} eval --stdin < "${commentFile}"`, { timeout: 10000 });
+      await this.exec(`--session ${this.session} eval --stdin < "${commentFile}"`, { timeout: 30000 });
       fs.unlinkSync(commentFile);
     }
 
@@ -1040,7 +1049,7 @@ class Browser {
 
     const confirmFile = `/tmp/approve_expense_confirm_${Date.now()}.js`;
     fs.writeFileSync(confirmFile, confirmScript, 'utf-8');
-    await this.exec(`--session ${this.session} eval --stdin < "${confirmFile}"`, { timeout: 10000 });
+    await this.exec(`--session ${this.session} eval --stdin < "${confirmFile}"`, { timeout: 30000 });
     fs.unlinkSync(confirmFile);
 
     await this.waitForLoad();
@@ -1052,34 +1061,67 @@ class Browser {
     // 使用文件方式传递 JavaScript（避免中文字符问题）
     const successMarker = JSON.stringify({ success: true });
 
-    // 等待页面完全渲染
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // 等待页面完全渲染（移动网络可能需要更长时间）
+    await new Promise(resolve => setTimeout(resolve, 3000));
 
     // 1. 点击审批动作的单选按钮
     // 注意：OA系统使用 value="handler_pass:通过", "handler_superRefuse:驳回" 等格式
+    // 增加重试机制以适应网络延迟
     const clickRadioJs = `(() => {
       const action = "${action}";
-      const radioButtons = document.querySelectorAll('input[type="radio"]');
-      const targetRadio = Array.from(radioButtons).find(radio => {
-        const label = radio.closest('label') || document.querySelector('label[for="' + radio.id + '"]');
-        const labelText = label ? label.textContent.trim() : '';
-        const value = radio.value || '';
-        // 匹配多种格式: "通过", "handler_pass:通过", "驳回", "handler_superRefuse:驳回"
-        return labelText === action || value === action ||
-               labelText.includes(action) || value.includes(action) ||
-               value.includes('handler_' + action.toLowerCase()) ||
-               value.includes(action);
-      });
-      if (targetRadio) {
-        targetRadio.click();
-        return { success: true, action: action, value: targetRadio.value };
+
+      // 重试函数：等待元素出现并执行操作
+      const tryClickRadio = (retries) => {
+        const radioButtons = document.querySelectorAll('input[type="radio"]');
+        const targetRadio = Array.from(radioButtons).find(radio => {
+          const label = radio.closest('label') || document.querySelector('label[for="' + radio.id + '"]');
+          const labelText = label ? label.textContent.trim() : '';
+          const value = radio.value || '';
+          // 匹配多种格式: "通过", "handler_pass:通过", "驳回", "handler_superRefuse:驳回"
+          return labelText === action || value === action ||
+                 labelText.includes(action) || value.includes(action) ||
+                 value.includes('handler_' + action.toLowerCase()) ||
+                 value.includes(action);
+        });
+
+        if (targetRadio) {
+          targetRadio.click();
+          return { success: true, action: action, value: targetRadio.value };
+        }
+
+        // 如果没找到且还有重试次数，继续重试
+        if (retries > 0) {
+          return { success: false, retry: true, remaining: retries };
+        }
+
+        return { success: false, availableRadios: radioButtons.length };
+      };
+
+      // 首次尝试
+      let result = tryClickRadio(0);
+
+      // 如果失败且允许重试，使用Promise重试
+      if (!result.success && result.retry) {
+        return new Promise(resolve => {
+          let retries = 5; // 最多重试5次
+          const interval = setInterval(() => {
+            result = tryClickRadio(retries - 1);
+            if (result.success || !result.retry || retries <= 0) {
+              clearInterval(interval);
+              resolve(result);
+            }
+            retries--;
+          }, 500); // 每500ms重试一次
+        });
       }
-      return { success: false, availableRadios: radioButtons.length };
+
+      return result;
     })()`;
 
     const radioFile = `/tmp/approve_radio_${Date.now()}.js`;
     fs.writeFileSync(radioFile, clickRadioJs, 'utf-8');
-    const clickResult = await this.exec(`--session ${this.session} eval --stdin < "${radioFile}"`, { timeout: 10000 });
+    // 增加超时时间以适应移动网络延迟
+    const clickResult = await this.exec(`--session ${this.session} eval --stdin < "${radioFile}"`, { timeout: 30000 });
     fs.unlinkSync(radioFile);
 
     // 检查结果

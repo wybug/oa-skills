@@ -308,9 +308,51 @@ async function extractAttachments(browser) {
 }
 ```
 
-## 7. 调试流程
+## 7. 错误处理
 
-### 7.1 使用断点分析页面
+### 7.1 常见错误类型
+
+| 错误类型 | 描述 | 处理方式 |
+|---------|------|----------|
+| INIT_ERROR | WebExtractor 初始化失败 | 保存快照，输出 [ERROR] 日志 |
+| FORMAT_ERROR | getAllTables 返回格式错误 | 保存快照，输出 [ERROR] 日志 |
+| LOGIN_EXPIRED | 登录状态过期 | 重新登录 |
+| ACCESS_DENIED | 无权访问该待办 | 标记为 skip 状态 |
+
+### 7.2 错误输出格式
+
+当获取待办详情失败时，控制台输出格式：
+
+```
+[ERROR] 初始化 WebExtractor 失败: WebExtractor not available
+  详情: fdId=abc123, type=meeting, title=邀请您参加会议...
+```
+
+### 7.3 特殊错误处理
+
+#### 登录过期检测
+
+```javascript
+const snapshot = await browser.snapshot();
+if (snapshot.includes('登录') && snapshot.includes('密码')) {
+  console.error('[ERROR] 登录已过期，需要重新登录');
+  throw new Error('LOGIN_EXPIRED');
+}
+```
+
+#### 无权访问处理
+
+```javascript
+if (snapshot.includes('访问被拒绝') || snapshot.includes('无权访问')) {
+  console.error('[ERROR] 无权访问该待办:', todo.title);
+  await db.updateStatus(todo.fd_id, 'skip', 'sync', '无权访问');
+  return;
+}
+```
+
+## 8. 调试流程
+
+### 8.1 使用断点分析页面
 
 ```javascript
 // 在 fetchTodoDetail 中添加断点
@@ -328,7 +370,7 @@ breakpoint(browser, `${todo.todo_type}类型分析`, {
 });
 ```
 
-### 7.2 手动调试命令
+### 8.2 手动调试命令
 
 断点暂停后使用以下命令分析页面：
 
@@ -343,7 +385,7 @@ npx agent-browser --session <session> eval 'WebExtractor.DebugHelper.getPageOver
 npx agent-browser --session <session> eval 'WebExtractor.TableExtractor.extractTable("table:nth-of-type(3)", {format:"markdown"})'
 ```
 
-## 8. 测试验证
+## 9. 测试验证
 
 ```bash
 # 1. 重新登录
@@ -358,7 +400,7 @@ node bin/oa-todo.js sync --force <ehr_fdId>
 cat /tmp/oa_todos/details/<fdId>/data.json
 ```
 
-## 9. 参考资料
+## 10. 参考资料
 
 - [agent-browser 文档](https://github.com/example/agent-browser)
 - [Playwright 文档](https://playwright.dev/)
