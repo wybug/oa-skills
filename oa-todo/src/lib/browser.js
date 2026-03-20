@@ -18,13 +18,20 @@ class Browser {
       snapshots: []
     };
 
-    // 如果是 debug 模式，先关闭现有的 daemon，然后使用 --headed
+    // 设置反检测环境变量（在启动 daemon 前设置）
+    // AGENT_BROWSER_ARGS 会在首次启动 daemon 时被读取
+    process.env.AGENT_BROWSER_ARGS = '--disable-blink-features=AutomationControlled';
+
+    // 先关闭现有的 daemon（如果存在），确保使用正确的参数启动
+    // 注意：环境变量设置的 args 只在 daemon 首次启动时生效
+    try {
+      execSync('npx agent-browser close', { timeout: 5000, stdio: 'ignore' });
+    } catch (e) {
+      // 忽略错误，可能没有 daemon 在运行
+    }
+
+    // 如果是 debug 模式，使用 --headed
     if (this.debugMode) {
-      try {
-        execSync('npx agent-browser close', { timeout: 5000, stdio: 'ignore' });
-      } catch (e) {
-        // 忽略错误，可能没有 daemon 在运行
-      }
       this.agentBrowser = 'npx agent-browser --headed';
     } else {
       this.agentBrowser = 'npx agent-browser';
@@ -649,9 +656,6 @@ class Browser {
 
     // 创建临时登录会话
     const loginSession = 'oa-login-' + Date.now();
-
-    // 关闭之前的会话
-    await this.exec(`--session ${loginSession} close`, { timeout: 5000 });
 
     // 步骤1: 打开OA登录页面
     console.log('🔐 步骤1: 打开OA登录页面...');

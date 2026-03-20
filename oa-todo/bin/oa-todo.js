@@ -20,7 +20,7 @@ const config = {
   todosDir: process.env.OA_TODOS_DIR || '/tmp/oa_todos',
   detailsDir: process.env.OA_DETAILS_DIR || '/tmp/oa_todos/details',
   stateFile: process.env.OA_STATE_FILE || '/tmp/oa_login_state.json',
-  loginTimeout: parseInt(process.env.LOGIN_TIMEOUT_MINUTES || '10', 10)
+  loginTimeout: parseInt(process.env.LOGIN_TIMEOUT_MINUTES || '25', 10)
 };
 
 // 确保目录存在
