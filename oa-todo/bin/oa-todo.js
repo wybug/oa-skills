@@ -50,34 +50,47 @@ program.option('--debug', '开启调试模式（详细日志输出）', false);
 program
   .command('sync')
   .description('同步OA系统待办列表')
-  .option('--limit <n>', '限制同步数量', parseInt, 0)
+  .option('--limit <n>', '限制同步数量（默认0不限制）', parseInt, 0)
   .option('--force <fdId>', '强制更新指定待办详情')
   .option('--force-update', '强制更新 skip 状态的待办（重置为 pending）', false)
-  .option('--skip-detail', '跳过详情获取', false)
+  .option('--fetch-detail', '获取待办详情（默认不同步详情）', false)
+  .option('-c, --concurrency <n>', '详情获取并发数（默认5）', parseInt, 5)
   .option('--login', '强制重新登录', false)
   .addHelpText('after', `
 
 常用示例:
-  oa-todo sync                      同步所有待办（首次或数据库为空时）
-  oa-todo sync --limit 10           只同步前10条待办
+  oa-todo sync                      同步待办列表（默认不获取详情）
+  oa-todo sync --fetch-detail       获取缺失详情（跳过列表同步，从数据库查询）
+  oa-todo sync -c 3 --fetch-detail  使用3个并发获取详情
+  oa-todo sync --fetch-detail --limit 10  获取前10条缺失详情
   oa-todo sync --force abc123       强制刷新指定待办的详情
-  oa-todo sync --skip-detail        仅同步列表，不获取详情（更快）
   oa-todo sync --login              强制重新登录后同步
   oa-todo sync --force-update       将 skip 状态的待办重置为 pending
 
 选项说明:
-  --limit <n>       限制同步的待办数量，0 表示不限制
+  --limit <n>       限制获取的待办数量，0 表示不限制
   --force <fdId>    仅更新指定 fdId 的待办详情，不执行列表同步
   --force-update    强制本地与远程同步，将 "skip" 状态重置为 "pending"
-  --skip-detail     只同步待办列表，不获取每条的详情信息
+  --fetch-detail    获取待办详情（跳过列表同步，从数据库查询缺失详情）
+  -c, --concurrency <n>  详情获取并发数（默认5）
   --login           忽略缓存的登录状态，强制重新登录
 
 工作原理:
-  1. 检查登录状态，过期则自动重新登录
-  2. 翻页获取所有待办列表（最多50页）
-  3. 对每条待办获取详情页面，提取结构化数据
-  4. 保存到本地数据库 (~/.oa-todo/oa_todos.db)
-  5. 默认更新待办状态记录（如标题变化）
+  默认模式 (sync):
+    1. 检查登录状态，过期则自动重新登录
+    2. 翻页获取所有待办列表（最多50页）
+    3. 保存到本地数据库 (~/.oa-todo/oa_todos.db)
+    4. 不同步详情（使用 --fetch-detail 单独获取）
+
+  详情获取模式 (--fetch-detail):
+    1. 检查登录状态（不打开页面）
+    2. 从数据库查询缺少详情的待办
+    3. 并发获取详情
+
+并发获取说明:
+  创建多个浏览器实例并发获取详情
+  默认5个并发，可通过 -c 参数调整
+  实际并发数不会超过待办数量（如2条待办仅启动2个实例）
 
 skip 状态机制:
   - 获取审批明细时，如果页面无对应审批按钮（不同待办类型按钮不同），

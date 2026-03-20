@@ -76,6 +76,34 @@ async function sync(options) {
     // 检查浏览器工具
     const browser = new Browser(options.config, { debugMode: options.debug });
 
+    // 如果使用 --fetch-detail，跳过列表同步，直接获取详情
+    if (options.fetchDetail) {
+      spinner.text = '检查登录状态...';
+
+      // 检查登录状态（不打开页面）
+      let loginStatus = await browser.checkLoginValid();
+      if (options.login || !loginStatus.valid) {
+        spinner.text = '需要重新登录...';
+        if (!process.env.OA_USER_NAME || !process.env.OA_USER_PASSWD) {
+          spinner.fail('缺少环境变量 OA_USER_NAME 或 OA_USER_PASSWD');
+          console.log(chalk.yellow('\n请在 CoPaw 的 Environments 中配置:'));
+          console.log('  OA_USER_NAME=你的用户名');
+          console.log('  OA_USER_PASSWD=你的密码');
+          process.exit(1);
+        }
+        await browser.login();
+        loginStatus = await browser.checkLoginValid();
+      }
+
+      spinner.succeed(`登录状态有效（剩余约 ${loginStatus.remaining} 分钟）`);
+
+      // 直接获取详情，无需加载列表页面
+      await fetchDetailsConcurrent(null, db, options.config, options);
+
+      await db.close();
+      return;
+    }
+
     // 如果使用 --force <fdId>，直接更新单条详情
     if (options.force && typeof options.force === 'string') {
       spinner.text = `正在获取待办详情: ${options.force}...`;
@@ -281,15 +309,6 @@ async function sync(options) {
           await db.updateStatus(todo.fdId, 'pending', 'sync', '强制更新重置');
           resetCount++;
           console.log(chalk.yellow(`   [${totalCount}] 重置: ${todo.fdId} ${todo.title.substring(0, 50)}... (skip → pending)`));
-          totalCount++;
-          // 获取详情（如果需要）
-          if (!options.skipDetail || options.force === todo.fdId) {
-            const shouldFetchDetail = options.force === todo.fdId || !isDetailComplete(existing);
-            if (shouldFetchDetail) {
-              spinner.text = `正在获取详情: ${todo.title.substring(0, 30)}...`;
-              await fetchTodoDetail(browser, db, options.config, todoData);
-            }
-          }
           continue;
         }
 
@@ -301,16 +320,6 @@ async function sync(options) {
           await db.upsertTodo(todoData);
           newCount++;
           console.log(chalk.green(`   [${totalCount}] 新增: ${todo.fdId} ${todo.title.substring(0, 50)}...`));
-        }
-
-        // 获取详情（如果需要）
-        if (!options.skipDetail || options.force === todo.fdId) {
-          const shouldFetchDetail = options.force === todo.fdId || !isDetailComplete(existing);
-
-          if (shouldFetchDetail) {
-            spinner.text = `正在获取详情: ${todo.title.substring(0, 30)}...`;
-            await fetchTodoDetail(browser, db, options.config, todoData);
-          }
         }
       }
 
@@ -383,15 +392,76 @@ async function sync(options) {
 }
 
 /**
- * 判断详情是否完整（基于数据库字段）
- * @param {Object} todo - 数据库中的待办记录
- * @returns {boolean} 如果所有明细路径字段都已填充则返回 true
+ * 并发获取待办详情
+ * @param {Browser} browser - 浏览器实例（用于配置，不直接使用）
+ * @param {Database} db - 数据库实例
+ * @param {Object} config - 配置对象
+ * @param {Object} options - 命令选项
  */
-function isDetailComplete(todo) {
-  // 检查数据库中的明细路径字段是否都已填充
-  return todo.detail_path &&
-         todo.snapshot_path &&
-         todo.screenshot_path;
+async function fetchDetailsConcurrent(browser, db, config, options) {
+  const spinner = ora('正在获取待办详情...').start();
+
+  // 从数据库获取缺少详情的待办（--limit 限制总数）
+  const todos = await db.getTodosWithoutDetails(options.limit);
+
+  if (todos.length === 0) {
+    spinner.info('所有待办详情已完整');
+    return;
+  }
+
+  const requestedConcurrency = options.concurrency || 5;
+  const total = todos.length;
+
+  // 实际并发数不超过待办数量
+  const actualConcurrency = Math.min(requestedConcurrency, total);
+
+  spinner.text = `需要获取详情: ${total} 条，并发数: ${actualConcurrency}`;
+
+  // 分批处理，每批并发执行
+  const chunks = chunkArray(todos, actualConcurrency);
+  let completed = 0;
+
+  for (const chunk of chunks) {
+    // 为每个并发任务创建独立的浏览器实例
+    const promises = chunk.map(todo => fetchDetailWithNewBrowser(config, db, todo));
+    await Promise.all(promises);
+    completed += chunk.length;
+    spinner.text = `获取详情进度: ${completed}/${total}`;
+  }
+
+  spinner.succeed(`详情获取完成！共 ${total} 条`);
+}
+
+/**
+ * 将数组分块
+ * @param {Array} array - 要分块的数组
+ * @param {number} size - 每块大小
+ * @returns {Array} 分块后的数组
+ */
+function chunkArray(array, size) {
+  const chunks = [];
+  for (let i = 0; i < array.length; i += size) {
+    chunks.push(array.slice(i, i + size));
+  }
+  return chunks;
+}
+
+/**
+ * 使用新浏览器实例获取单个待办详情
+ * @param {Object} config - 配置对象
+ * @param {Database} db - 数据库实例
+ * @param {Object} todo - 待办对象
+ */
+async function fetchDetailWithNewBrowser(config, db, todo) {
+  const browser = new Browser(config, { debugMode: false });
+  try {
+    await browser.loadState();
+    await fetchTodoDetail(browser, db, config, todo);
+  } catch (error) {
+    console.error(chalk.red(`   ✗ 获取失败: ${todo.fd_id} - ${error.message}`));
+  } finally {
+    await browser.close();
+  }
 }
 
 /**

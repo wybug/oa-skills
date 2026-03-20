@@ -220,6 +220,27 @@ class Database {
   }
 
   /**
+   * 获取缺少详情的待办
+   * @param {number} limit - 限制数量，0 表示不限制
+   * @returns {Array} 待办数组
+   */
+  async getTodosWithoutDetails(limit = 0) {
+    let sql = `
+      SELECT * FROM todos
+      WHERE detail_path IS NULL
+         OR snapshot_path IS NULL
+         OR screenshot_path IS NULL
+      ORDER BY received_at DESC
+    `;
+
+    if (limit > 0) {
+      sql += ` LIMIT ${limit}`;
+    }
+
+    return this.all(sql);
+  }
+
+  /**
    * 更新状态
    */
   async updateStatus(fdId, status, action, comment = null) {

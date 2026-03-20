@@ -118,12 +118,13 @@ class Browser {
     await this.exec(`--session ${this.session} state load ${this.config.stateFile}`);
   }
 
-  async open(url) {
+  async open(url, waitTimeout) {
     await this.exec(`--session ${this.session} open "${url}"`);
-    await this.waitForLoad();
+    // 移动网络可能需要更长的加载时间，默认30秒
+    await this.waitForLoad(waitTimeout || 30000);
   }
 
-  async waitForLoad(timeout = 10000) {
+  async waitForLoad(timeout = 30000) {
     await this.exec(`--session ${this.session} wait --load networkidle`, { timeout });
   }
 
