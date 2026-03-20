@@ -9,7 +9,7 @@ const path = require('path');
 const Database = require('../lib/database');
 const Browser = require('../lib/browser');
 const { detectTodoType, parseTitle } = require('../lib/detector');
-const { breakpoint } = require('../lib/web-extractor');
+const { createDetailHandler } = require('../lib/detail-handlers');
 
 // JavaScript 代码：获取待办列表
 const getTodosScript = `
@@ -446,34 +446,13 @@ async function fetchTodoDetail(browser, db, config, todo) {
     return;
   }
 
-  // 根据待办类型使用不同的提取策略
-  let formInfo = {};
-  let formMarkdown = '';
-  let workflowHistory = [];
-  let attachments = [];
+  // 使用类型处理器处理详情
+  const handler = createDetailHandler(browser, todo);
+  const result = await handler.handle(allTables);
 
-  if (todo.todo_type === 'meeting') {
-    // 会议类型：查找包含"会议名称"的表格
-    const result = await extractMeetingTable(browser, allTables);
-    formInfo = result.info;
-    formMarkdown = result.markdown;
-  } else if (todo.todo_type === 'ehr') {
-    // EHR类型：查找包含"假别"、"开始时间"等字段的表格
-    const result = await extractLeaveTable(browser, allTables);
-    formInfo = result.info;
-    formMarkdown = result.markdown;
-  } else {
-    // 流程类型：跳过会议和流程跟踪表格，查找第一个有效表格
-    const result = await extractWorkflowTable(browser, allTables);
-    formInfo = result.info;
-    formMarkdown = result.markdown;
-  }
-
-  // 提取流程跟踪记录（通用）
-  workflowHistory = await extractWorkflowHistory(browser, allTables);
-
-  // 提取附件列表（通用）
-  attachments = await extractAttachments(browser);
+  // 提取流程跟踪和附件（通用）
+  const workflowHistory = await extractWorkflowHistory(browser, allTables);
+  const attachments = await extractAttachments(browser);
 
   // 组装结构化数据
   const structuredData = {
@@ -482,8 +461,11 @@ async function fetchTodoDetail(browser, db, config, todo) {
     todoType: todo.todo_type,
     url: url,
     extractedAt: new Date().toISOString(),
-    formInfo: formInfo,
-    formMarkdown: formMarkdown,
+    isApprovable: result.isApprovable,
+    supportedActions: result.supportedActions,
+    skipReason: result.reason,
+    formInfo: result.formData.info,
+    formMarkdown: result.formData.markdown,
     workflowHistory: workflowHistory,
     attachments: attachments
   };
@@ -508,143 +490,12 @@ async function fetchTodoDetail(browser, db, config, todo) {
 
   // 更新数据库
   await db.updateDetailPaths(todo.fd_id, detailPath, snapshotPath, screenshotPath);
-}
 
-/**
- * 提取会议信息表格
- * @param {Browser} browser - 浏览器实例
- * @param {Array} allTables - 所有表格概览
- * @returns {Object} { info, markdown }
- */
-async function extractMeetingTable(browser, allTables) {
-  // 查找包含"会议名称"的表格
-  const targetTable = allTables.find(t => t.preview.includes('会议名称'));
-
-  if (!targetTable) {
-    return { info: {}, markdown: '## 会议信息\n\n(未找到会议信息表格)' };
+  // 如果不可审批，设置状态为 skip
+  if (!result.isApprovable) {
+    await db.updateStatus(todo.fd_id, 'skip', 'sync', result.reason);
+    console.log(chalk.yellow(`   ⚠️  ${todo.fd_id} 不可审批，状态设置为 skip`));
   }
-
-  const tableData = await browser.extractTable(
-    `table:nth-of-type(${targetTable.index + 1})`,
-    { skipHeader: false }
-  );
-
-  if (!tableData.success) {
-    return { info: {}, markdown: '## 会议信息\n\n(提取失败)' };
-  }
-
-  // 转换为键值对和Markdown
-  const info = {};
-  const markdownLines = ['## 会议信息', ''];
-
-  tableData.data.forEach(row => {
-    for (let i = 0; i < row.length; i += 2) {
-      if (i + 1 < row.length && row[i]) {
-        const key = row[i].trim();
-        const value = row[i + 1] ? row[i + 1].trim() : '';
-        info[key] = value;
-        markdownLines.push(`- **${key}**: ${value}`);
-      }
-    }
-  });
-
-  return { info, markdown: markdownLines.join('\n') };
-}
-
-/**
- * 提取请假信息表格
- * @param {Browser} browser - 浏览器实例
- * @param {Array} allTables - 所有表格概览
- * @returns {Object} { info, markdown }
- */
-async function extractLeaveTable(browser, allTables) {
-  // 跳过包含"会议名称"和"流程跟踪"的表格
-  // 查找包含"假别"、"开始时间"等字段的表格
-  const targetTable = allTables.find(t =>
-    !t.preview.includes('会议名称') &&
-    !t.preview.includes('流程跟踪') &&
-    !t.preview.includes('节点') &&
-    (t.preview.includes('假别') || t.preview.includes('开始时间') || t.preview.includes('假期类型')) &&
-    t.rowCount > 1
-  );
-
-  if (!targetTable) {
-    return { info: {}, markdown: '## 请假信息\n\n(未找到请假信息表格)' };
-  }
-
-  const tableData = await browser.extractTable(
-    `table:nth-of-type(${targetTable.index + 1})`,
-    { skipHeader: false }
-  );
-
-  if (!tableData.success) {
-    return { info: {}, markdown: '## 请假信息\n\n(提取失败)' };
-  }
-
-  // 转换为键值对和Markdown
-  const info = {};
-  const markdownLines = ['## 请假信息', ''];
-
-  tableData.data.forEach(row => {
-    for (let i = 0; i < row.length; i += 2) {
-      if (i + 1 < row.length && row[i]) {
-        const key = row[i].trim();
-        const value = row[i + 1] ? row[i + 1].trim() : '';
-        info[key] = value;
-        markdownLines.push(`- **${key}**: ${value}`);
-      }
-    }
-  });
-
-  return { info, markdown: markdownLines.join('\n') };
-}
-
-/**
- * 提取流程表单表格
- * @param {Browser} browser - 浏览器实例
- * @param {Array} allTables - 所有表格概览
- * @returns {Object} { info, markdown }
- */
-async function extractWorkflowTable(browser, allTables) {
-  // 跳过包含"会议名称"和"流程跟踪"的表格
-  // 查找第一个包含有效数据的表格
-  const targetTable = allTables.find(t =>
-    !t.preview.includes('会议名称') &&
-    !t.preview.includes('流程跟踪') &&
-    !t.preview.includes('节点') &&
-    !t.preview.includes('处理人') &&
-    t.rowCount > 1
-  );
-
-  if (!targetTable) {
-    return { info: {}, markdown: '## 表单信息\n\n(未找到表单数据)' };
-  }
-
-  const tableData = await browser.extractTable(
-    `table:nth-of-type(${targetTable.index + 1})`,
-    { skipHeader: false }
-  );
-
-  if (!tableData.success) {
-    return { info: {}, markdown: '## 表单信息\n\n(提取失败)' };
-  }
-
-  // 转换为键值对和Markdown
-  const info = {};
-  const markdownLines = ['## 表单信息', ''];
-
-  tableData.data.forEach(row => {
-    for (let i = 0; i < row.length; i += 2) {
-      if (i + 1 < row.length && row[i]) {
-        const key = row[i].trim();
-        const value = row[i + 1] ? row[i + 1].trim() : '';
-        info[key] = value;
-        markdownLines.push(`- **${key}**: ${value}`);
-      }
-    }
-  });
-
-  return { info, markdown: markdownLines.join('\n') };
 }
 
 /**
@@ -718,6 +569,19 @@ function extractDetailText(snapshot, todo, structuredData = null) {
 
   // 添加结构化数据
   if (structuredData) {
+    // 添加审批状态信息
+    if (typeof structuredData.isApprovable !== 'undefined') {
+      lines.push('=== 审批状态 ===');
+      lines.push(`可审批: ${structuredData.isApprovable ? '是' : '否'}`);
+      if (structuredData.supportedActions && structuredData.supportedActions.length > 0) {
+        lines.push(`支持动作: ${structuredData.supportedActions.join(', ')}`);
+      }
+      if (structuredData.skipReason) {
+        lines.push(`跳过原因: ${structuredData.skipReason}`);
+      }
+      lines.push('');
+    }
+
     if (structuredData.formMarkdown) {
       lines.push('=== 表单信息 ===');
       lines.push('');

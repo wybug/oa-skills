@@ -69,13 +69,14 @@ async function approve(fdId, action, options) {
     // 验证动作
     if (!validateAction(todo.todo_type, action)) {
       const validActions = getValidActions(todo.todo_type);
-      
-      console.log(chalk.red(`\n❌ 不支持的动作: ${action}`));
-      console.log(chalk.yellow('\n支持的动作:'));
+      const typeName = TYPE_NAMES[todo.todo_type] || todo.todo_type;
+
+      console.log(chalk.red(`\n❌ ${typeName}不支持的动作: ${action}`));
+      console.log(chalk.yellow(`\n${typeName}支持的动作:`));
       validActions.forEach(a => {
         console.log(`  - ${a}`);
       });
-      
+
       await db.close();
       process.exit(1);
     }
@@ -123,8 +124,14 @@ async function approve(fdId, action, options) {
     spinner.succeed(`登录状态有效（剩余约 ${loginStatus.remaining} 分钟）`);
     spinner.start('加载登录状态...');
 
+    // 检查浏览器模式
+    const isHeadedMode = process.env.OA_BROWSER_HEADED === '1';
+
     if (isDebugMode) {
-      console.log(chalk.cyan('\n🐛 调试模式已启用，浏览器窗口将可见'));
+      console.log(chalk.cyan('\n🐛 调试模式已启用，将输出详细日志'));
+    }
+    if (isHeadedMode) {
+      console.log(chalk.cyan('🖥️  浏览器窗口将可见'));
     }
     
     // 加载登录状态
@@ -183,6 +190,10 @@ async function approve(fdId, action, options) {
     try {
       if (todo.todo_type === 'meeting') {
         await browser.approveMeeting(action);
+      } else if (todo.todo_type === 'ehr') {
+        await browser.approveEhr(action, options.comment);
+      } else if (todo.todo_type === 'expense') {
+        await browser.approveExpense(action, options.comment);
       } else if (todo.todo_type === 'workflow') {
         await browser.approveWorkflow(action, options.comment);
       } else {

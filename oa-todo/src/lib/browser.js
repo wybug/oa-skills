@@ -11,6 +11,8 @@ class Browser {
   constructor(config, options = {}) {
     this.config = config;
     this.debugMode = options.debugMode || false;
+    // headedMode 由环境变量控制（由 daemon 命令设置）
+    this.headedMode = this._getDefaultHeadedMode();
     this.session = `oa-todo-${Date.now()}`;
     this.debugInfo = {
       commands: [],
@@ -18,24 +20,28 @@ class Browser {
       snapshots: []
     };
 
-    // 设置反检测环境变量（在启动 daemon 前设置）
-    // AGENT_BROWSER_ARGS 会在首次启动 daemon 时被读取
+    // 反检测参数始终启用
     process.env.AGENT_BROWSER_ARGS = '--disable-blink-features=AutomationControlled';
 
-    // 先关闭现有的 daemon（如果存在），确保使用正确的参数启动
-    // 注意：环境变量设置的 args 只在 daemon 首次启动时生效
+    // 关闭现有 daemon
     try {
       execSync('npx agent-browser close', { timeout: 5000, stdio: 'ignore' });
     } catch (e) {
-      // 忽略错误，可能没有 daemon 在运行
+      // 忽略
     }
 
-    // 如果是 debug 模式，使用 --headed
-    if (this.debugMode) {
-      this.agentBrowser = 'npx agent-browser --headed';
-    } else {
-      this.agentBrowser = 'npx agent-browser';
+    // 根据 headedMode 构建命令（与 debugMode 解耦）
+    const headedFlag = this.headedMode ? '--headed' : '';
+    this.agentBrowser = `npx agent-browser ${headedFlag}`.trim();
+  }
+
+  // 从环境变量获取浏览器模式（由 daemon 命令设置）
+  _getDefaultHeadedMode() {
+    const envValue = process.env.OA_BROWSER_HEADED;
+    if (envValue !== undefined) {
+      return envValue === '1' || envValue === 'true' || envValue === 'yes';
     }
+    return false; // 默认：无头模式
   }
 
   async exec(args, options = {}) {
@@ -900,6 +906,142 @@ class Browser {
     if (!this._checkSuccess(submitResult)) {
       throw new Error('未找到提交按钮');
     }
+
+    await this.waitForLoad();
+    return this.snapshot();
+  }
+
+  async approveEhr(action, comment = '') {
+    // EHR 使用"同意"/"不同意"按钮
+    const selectActionJs = `
+      (() => {
+        const action = "${action}";
+        const allButtons = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
+        const targetBtn = allButtons.find(btn => btn.textContent.trim() === action);
+
+        if (targetBtn) {
+          if (targetBtn.disabled || targetBtn.classList.contains('disabled')) {
+            return { success: false, error: '按钮已禁用' };
+          }
+          targetBtn.click();
+          return { success: true, action: action };
+        }
+
+        return { success: false, availableButtons: allButtons.map(b => b.textContent.trim()) };
+      })()
+    `;
+
+    const selectFile = `/tmp/approve_ehr_select_${Date.now()}.js`;
+    fs.writeFileSync(selectFile, selectActionJs, 'utf-8');
+    const selectResult = await this.exec(`--session ${this.session} eval --stdin < "${selectFile}"`, { timeout: 10000 });
+    fs.unlinkSync(selectFile);
+
+    if (!this._checkSuccess(selectResult)) {
+      throw new Error(`未找到审批选项: ${action}`);
+    }
+
+    // 点击提交按钮
+    const submitJs = `
+      (() => {
+        let submitBtn = document.querySelector('.lui_toolbar_btn_l');
+        if (!submitBtn) {
+          const allElements = document.querySelectorAll('div, button, input[type="submit"], input[type="button"], a');
+          submitBtn = Array.from(allElements).find(el => {
+            const text = el.textContent.trim();
+            const value = el.value || '';
+            return (text === '提交' || text === '确定' || text === '保存' ||
+                    value === '提交' || value === '确定' || value === '保存') &&
+                   el.offsetParent !== null;
+          });
+        }
+        if (submitBtn) {
+          submitBtn.click();
+          return { success: true };
+        }
+        return { success: false };
+      })()
+    `;
+
+    const submitFile = `/tmp/approve_ehr_submit_${Date.now()}.js`;
+    fs.writeFileSync(submitFile, submitJs, 'utf-8');
+    const submitResult = await this.exec(`--session ${this.session} eval --stdin < "${submitFile}"`, { timeout: 10000 });
+    fs.unlinkSync(submitFile);
+
+    if (!this._checkSuccess(submitResult)) {
+      throw new Error('未找到提交按钮');
+    }
+
+    await this.waitForLoad();
+    return this.snapshot();
+  }
+
+  async approveExpense(action, comment = '') {
+    // 步骤1: 点击审批按钮
+    const clickScript = `
+      (() => {
+        const action = "${action}";
+        const buttons = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
+        const targetBtn = buttons.find(btn => btn.textContent.trim() === action);
+
+        if (targetBtn) {
+          if (targetBtn.disabled || targetBtn.classList.contains('disabled')) {
+            return { success: false, error: '按钮已禁用，可能已处理' };
+          }
+          targetBtn.click();
+          return { success: true, action: action };
+        }
+
+        return { success: false, error: '未找到' + action + '按钮' };
+      })()
+    `;
+
+    const clickFile = `/tmp/approve_expense_click_${Date.now()}.js`;
+    fs.writeFileSync(clickFile, clickScript, 'utf-8');
+    const clickResult = await this.exec(`--session ${this.session} eval --stdin < "${clickFile}"`, { timeout: 10000 });
+    fs.unlinkSync(clickFile);
+
+    const successMarker = JSON.stringify({ success: true });
+    if (!this._checkSuccess(clickResult)) {
+      throw new Error(`未找到审批按钮: ${action}`);
+    }
+
+    // 步骤2: 如果是驳回，填写意见
+    if (action === '驳回' && comment) {
+      const commentScript = `
+        (() => {
+          const commentBox = document.querySelector('textarea[placeholder*="意见"], input[placeholder*="意见"]');
+          if (commentBox) {
+            commentBox.value = '${comment}';
+            commentBox.dispatchEvent(new Event('input', { bubbles: true }));
+            return { success: true };
+          }
+          return { success: false };
+        })()
+      `;
+      const commentFile = `/tmp/approve_expense_comment_${Date.now()}.js`;
+      fs.writeFileSync(commentFile, commentScript, 'utf-8');
+      await this.exec(`--session ${this.session} eval --stdin < "${commentFile}"`, { timeout: 10000 });
+      fs.unlinkSync(commentFile);
+    }
+
+    // 步骤3: 处理确认弹窗
+    const confirmScript = `
+      (() => {
+        const confirmBtn = Array.from(document.querySelectorAll('button')).find(btn =>
+          btn.textContent.includes('确定') || btn.textContent.includes('确认')
+        );
+        if (confirmBtn) {
+          confirmBtn.click();
+          return { success: true };
+        }
+        return { success: false };
+      })()
+    `;
+
+    const confirmFile = `/tmp/approve_expense_confirm_${Date.now()}.js`;
+    fs.writeFileSync(confirmFile, confirmScript, 'utf-8');
+    await this.exec(`--session ${this.session} eval --stdin < "${confirmFile}"`, { timeout: 10000 });
+    fs.unlinkSync(confirmFile);
 
     await this.waitForLoad();
     return this.snapshot();

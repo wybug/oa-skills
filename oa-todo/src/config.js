@@ -59,9 +59,9 @@ const STATUS_COLORS = {
 // 支持的审批动作
 const APPROVE_ACTIONS = {
   [TODO_TYPE.MEETING]: ['参加', '不参加'],
+  [TODO_TYPE.EHR]: ['同意', '不同意'],
+  [TODO_TYPE.EXPENSE]: ['同意', '驳回'],
   [TODO_TYPE.WORKFLOW]: ['通过', '驳回', '转办'],
-  [TODO_TYPE.EXPENSE]: ['通过', '驳回'],
-  [TODO_TYPE.EHR]: [],
   [TODO_TYPE.UNKNOWN]: []
 };
 
@@ -69,6 +69,8 @@ const APPROVE_ACTIONS = {
 const ACTION_TO_STATUS = {
   '参加': TODO_STATUS.ATTENDED,
   '不参加': TODO_STATUS.NOT_ATTENDED,
+  '同意': TODO_STATUS.APPROVED,
+  '不同意': TODO_STATUS.REJECTED,
   '通过': TODO_STATUS.APPROVED,
   '驳回': TODO_STATUS.REJECTED,
   '转办': TODO_STATUS.TRANSFERRED,

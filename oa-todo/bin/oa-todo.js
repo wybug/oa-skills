@@ -40,6 +40,9 @@ program
     ensureDirs();
   });
 
+// 全局 debug 选项（所有命令通用）
+program.option('--debug', '开启调试模式（详细日志输出）', false);
+
 // sync 命令
 program
   .command('sync')
@@ -49,10 +52,14 @@ program
   .option('--force-update', '强制更新 skip 状态的待办（重置为 pending）', false)
   .option('--skip-detail', '跳过详情获取', false)
   .option('--login', '强制重新登录', false)
-  .option('--debug', '开启调试模式', false)
   .action(async (options) => {
     const sync = require('../src/commands/sync');
-    await sync({ ...options, config });
+    // 合并全局 debug 选项
+    const mergedOptions = {
+      ...options,
+      debug: program.opts().debug
+    };
+    await sync({ ...mergedOptions, config });
   });
 
 // list 命令
@@ -85,14 +92,30 @@ program
 program
   .command('approve <fdId> <action>')
   .description('审批待办')
+  .addHelpText('after', `
+
+审批动作说明:
+  会议邀请 (meeting):   参加、不参加
+  EHR假期 (ehr):        同意、不同意
+  费用报销 (expense):   同意、驳回
+  通用流程 (workflow):  通过、驳回、转办
+
+示例:
+  oa-todo approve <fdId> 参加
+  oa-todo approve <fdId> 同意
+  oa-todo approve <fdId> 驳回 --comment "理由"
+  `)
   .option('--comment <text>', '审批意见')
   .option('--force', '强制执行（不确认）', false)
-  .option('--debug', '调试模式：显示浏览器窗口并在审批页面暂停', false)
   .option('--delay <seconds>', '成功后延迟关闭窗口时间（秒）', parseInt, 3)
   .option('--skip-status-check', '跳过本地状态检查', false)
   .action(async (fdId, action, options) => {
     const approve = require('../src/commands/approve');
-    await approve(fdId, action, { ...options, config });
+    const mergedOptions = {
+      ...options,
+      debug: program.opts().debug
+    };
+    await approve(fdId, action, { ...mergedOptions, config });
   });
 
 // status 命令
@@ -105,6 +128,17 @@ program
   .action(async (options) => {
     const status = require('../src/commands/status');
     await status({ ...options, config });
+  });
+
+// daemon 命令
+program
+  .command('daemon')
+  .description('管理浏览器守护进程和模式')
+  .argument('[action]', '操作: status|start|restart|stop|release', 'status')
+  .option('--headed', '启动/重启时使用可见窗口模式')
+  .action(async (action, options) => {
+    const daemon = require('../src/commands/daemon');
+    await daemon(action, { ...options, config });
   });
 
 // 错误处理

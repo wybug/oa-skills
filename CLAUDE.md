@@ -4,15 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an OA (Office Automation) approval system for 新国都集团 (XGD Group). It automates approval workflows for:
-- **费控系统** (Expense Control System) - for expense reimbursements
-- **OA系统** (General OA System) - for general todo items/approvals
-
-The system uses Bash scripts with `agent-browser` (a browser automation tool built on Playwright) to interact with web forms.
+This is an OA (Office Automation) approval system for 新国都集团 (XGD Group). It automates approval workflows through a Node.js CLI tool that handles:
+- **会议邀请** (Meeting invitations) - Actions: 参加, 不参加
+- **EHR假期** (EHR leave requests) - Actions: 同意, 不同意
+- **费用报销** (Expense reimbursements) - Actions: 同意, 驳回
+- **通用流程** (General workflows) - Actions: 通过, 驳回, 转办
 
 ## Node.js CLI Tool (oa-todo)
 
-The project includes a modern Node.js CLI tool located in the `oa-todo/` subdirectory:
+The project uses a modern Node.js CLI tool located in the `oa-todo/` subdirectory:
 - **Entry point**: `oa-todo/bin/oa-todo.js`
 - **Source code**: `oa-todo/src/`
 - **Package config**: `oa-todo/package.json`
@@ -30,6 +30,7 @@ oa-todo sync      # Sync todos from OA system
 oa-todo list      # List todos
 oa-todo show <fdId>  # Show todo details
 oa-todo approve <fdId> <action>  # Approve todo
+oa-todo status    # Show statistics
 ```
 
 The CLI tool uses SQLite for data persistence and supports advanced features like status management, partial fdId matching, and file-based JSON extraction to avoid truncation issues.
@@ -42,7 +43,7 @@ Configure these in CoPaw Environments:
 OA_USER_NAME=your_username
 OA_USER_PASSWD=your_password
 OA_STATE_FILE=/tmp/oa_login_state.json  # optional, default shown
-LOGIN_TIMEOUT_MINUTES=10                # optional, session timeout
+LOGIN_TIMEOUT_MINUTES=25                 # optional, session timeout
 ```
 
 **Security**: Never ask users for credentials directly. They must be configured in the environment.
@@ -50,76 +51,76 @@ LOGIN_TIMEOUT_MINUTES=10                # optional, session timeout
 ## Dependencies
 
 - **Node.js** >= 14.0.0
-- **agent-browser** - Auto-installed via `npx agent-browser`, or globally with `npm install -g agent-browser`
-- **Python 3** - Used for JSON parsing in scripts
+- **agent-browser** - Auto-installed via `npx agent-browser`
 
-Check/install dependencies: `./scripts/check_dependencies.sh`
+## Todo Types & Actions
 
-## Two-System Architecture
+| 类型 | detector名称 | 审批动作 | 按钮文本 |
+|------|-------------|----------|----------|
+| 会议邀请 | meeting | 参加、不参加 | 参加/不参加 |
+| EHR假期 | ehr | 同意、不同意 | 同意/不同意 |
+| 费用报销 | expense | 同意、驳回 | 同意/驳回 |
+| 通用流程 | workflow | 通过、驳回、转办 | 通过/驳回 |
 
-### 费控系统 (Expense Control)
-- URL: `https://sso-oa.xgd.com/sso/login?service=https://ekuaibao.xgd.com:9080/ykb/single/sso`
-- Scripts: `query_approval.sh`, `approve.sh`, `batch_approve.sh`
-- Use case: Expense reimbursement approvals
+## Commands
 
-### OA系统 (General OA)
-- URL: `https://oa.xgd.com`
-- Scripts: `query_oa_todo.sh`, `approve_oa_todo.sh`, `approve_oa_todo_by_title.sh`, `approve_oa_todo_by_fdId.sh`, `sync_oa_todos.sh`
-- Use case: General workflow approvals, meeting notifications
-
-**Important**: Do not mix scripts between systems. Each has its own entry point and workflow.
-
-## Core Scripts
-
-### Login & State Management
+### sync - Synchronize todos
 
 ```bash
-./scripts/login.sh              # Login and save session state to file
+oa-todo sync                    # Sync all todos (only if local is empty)
+oa-todo sync --limit 10         # Sync first 10 todos
+oa-todo sync --force <fdId>     # Force refresh specific todo detail
+oa-todo sync --force-update     # Reset skip-status todos to pending
+oa-todo sync --skip-detail      # Skip fetching details
+oa-todo sync --login            # Force re-login
 ```
 
-The login state is saved as a JSON file containing cookies and session data, allowing other scripts to skip the login process (~5-8 seconds saved per run).
-
-### Expense Control (费控系统)
+### list - List todos
 
 ```bash
-./scripts/query_approval.sh           # Query pending expense approvals
-./scripts/approve.sh <单号> 同意|驳回 [意见]    # Approve/reject single expense
-./scripts/batch_approve.sh <csv> [并发数]      # Batch approve expenses
+oa-todo list                    # List pending todos
+oa-todo list --status approved  # List by status
+oa-todo list --type meeting     # List by type
+oa-todo list --limit 50         # Limit results
+oa-todo list --all              # Show all (including non-pending)
+oa-todo list --json             # JSON output
 ```
 
-### OA System (OA系统)
+### show - Show todo details
 
 ```bash
-./scripts/query_oa_todo.sh                    # Query OA todo list
-./scripts/approve_oa_todo.sh <序号|关键词> <动作> [意见]  # Approve OA todo by index/keyword
-./scripts/approve_oa_todo_by_title.sh "<关键词>" <动作> [意见]  # Approve by searching title (fuzzy match)
-./scripts/approve_oa_todo_by_fdId.sh <fdId> <动作> [意见]  # Approve by exact fdId (precise)
-./scripts/sync_oa_todos.sh [limit]            # Sync all todos to /tmp/oa_todos/
+oa-todo show <fdId>             # Show todo details
+oa-todo show <fdId> --refresh   # Force refresh details
+oa-todo show <fdId> --open      # Open in browser
 ```
 
-**OA Todo Approval Methods:**
-- **By index**: `approve_oa_todo.sh 5 通过` - Approve the 5th item from query output
-- **By title keyword**: `approve_oa_todo_by_title.sh "QuickBi会议" 参加` - Fuzzy search by title
-- **By fdId**: `approve_oa_todo_by_fdId.sh "19bba01cb5a30a6668fdc15413daa5da" 通过` - Exact match, fastest
+### approve - Approve todos
 
-### Approval Actions
+```bash
+oa-todo approve <fdId> 参加
+oa-todo approve <fdId> 同意
+oa-todo approve <fdId> 驳回 --comment "需要修改"
+oa-todo approve <fdId> 通过 --force --skip-status-check
+```
 
-- **会议安排**: 参加, 不参加
-- **流程管理**: 通过, 驳回, 转办
-- **费控系统**: 同意, 驳回
+### status - Show statistics
 
-## Session & State Architecture
+```bash
+oa-todo status                  # Overall statistics
+oa-todo status --by-type        # Group by type
+oa-todo status --by-status      # Group by status
+oa-todo status --by-date        # Group by date
+```
 
-All scripts share a common pattern:
+### daemon - Manage browser daemon
 
-1. **Check login validity** - Compare state file age against `LOGIN_TIMEOUT_MINUTES`
-2. **Auto-relogin if expired** - Calls `login.sh` automatically
-3. **Load state** - `agent-browser state load $STATE_FILE`
-4. **Create unique session** - `SESSION_NAME="oa-$(action)-$(date +%s%N)"`
-5. **Execute action**
-6. **Close session**
-
-This allows concurrent execution (3-5 tasks recommended) without session conflicts.
+```bash
+oa-todo daemon                  # Show daemon status
+oa-todo daemon start            # Start daemon
+oa-todo daemon stop             # Stop daemon
+oa-todo daemon restart          # Restart daemon
+oa-todo daemon start --headed   # Start with visible browser
+```
 
 ## State File Location
 
@@ -127,64 +128,72 @@ Default: `/tmp/oa_login_state.json`
 
 Contains: Cookies, localStorage, sessionStorage, browser context
 
-Valid for: ~30 minutes (depends on OA system session timeout)
+Valid for: ~25 minutes (configurable via `LOGIN_TIMEOUT_MINUTES`)
 
-## Output Files
+## Data Storage
 
-- **Expense approval logs**: `/tmp/oa_approve_<单号>.log`
-- **Batch results**: `/tmp/oa_batch_results.csv`
-- **OA todo sync**: `/tmp/oa_todos/` directory with:
-  - `index.txt` - Index file: `fdId|title|href` (one per line)
-  - `summary.txt` - Sync summary report
-  - `[fdId]/detail.txt` - Per-todo detail (page content + snapshot)
-  - `[fdId]/snapshot.txt` - Page snapshot
-  - `[fdId]/screenshot.png` - Page screenshot
-
-**Index file format:**
-```
-19bba01cb5a30a6668fdc15413daa5da|邀请您参加会议：QuickBi会议|/sys/notify/sys_notify_todo/sysNotifyTodo.do?method=view&fdId=19bba01cb5a30a6668fdc15413daa5da
-1973435176269e7aec5a2fd4c13b002a|请审批[运维中心]张凯旋提交的流程：阿里云大数据架构探讨|/sys/notify/sys_notify_todo/sysNotifyTodo.do?method=view&fdId=1973435176269e7aec5a2fd4c13b002a
-```
-
-The `approve_oa_todo_by_fdId.sh` script uses exact fdId matching (`grep "^${FDID}|"`) for precise lookup, while `approve_oa_todo_by_title.sh` uses fuzzy grep matching on titles.
-
-## Debugging
-
-Run scripts with visible browser:
-```bash
-AGENT_BROWSER_HEADED=1 ./scripts/approve.sh FK001 同意
-```
-
-## Timezone
-
-All scripts set `TZ=Asia/Shanghai` for consistent Beijing/Shanghai time.
-
-## Script Conventions
-
-- All scripts start with `set -e` for error handling
-- All scripts source `check_dependencies.sh` for dependency checking
-- Session names use nanosecond timestamps for uniqueness: `$(date +%s%N)`
-- All scripts close their session before exiting
+- **Database**: SQLite at `/tmp/oa_todos/oa_todos.db`
+- **Todo details**: `/tmp/oa_todos/details/<fdId>/`
+  - `data.json` - Structured data
+  - `detail.txt` - Plain text detail
+  - `snapshot.txt` - Page snapshot
+  - `screenshot.png` - Page screenshot
 
 ## Todo Type Detection
 
-OA system todos come in two types, requiring different approval workflows:
+Detection is based on title patterns:
+- **meeting**: Title starts with "邀请您参加会议"
+- **ehr**: Title contains "休假" or "年假"
+- **expense**: Title contains "付款报销"
+- **workflow**: Title starts with "请审批"
+- **unknown**: Default fallback
 
-1. **会议安排** (Meeting) - Actions: 参加, 不参加
-2. **流程管理** (Workflow) - Actions: 通过, 驳回, 转办
+## Approval Workflow
 
-**Detection approach** (used in `approve_oa_todo_by_fdId.sh`):
-1. First, check title prefix: "邀请您参加会议" → meeting, "请审批" → workflow
-2. If title is inconclusive, analyze page content for keywords
-3. This two-step approach reduces page load and parsing overhead
+1. Check login validity, auto-relogin if expired
+2. Load browser state from file
+3. Open todo detail page directly via URL
+4. Click appropriate action button(s)
+5. Submit approval
+6. Update local database status
 
-Direct URL opening (via href from index.txt) bypasses OA UI navigation, making `approve_oa_todo_by_fdId.sh` the fastest approval method when fdId is known.
+## Debugging
+
+Run with debug mode:
+```bash
+oa-todo --debug approve <fdId> <action>
+```
+
+Run with headed browser (via daemon):
+```bash
+oa-todo daemon start --headed
+oa-todo approve <fdId> <action>
+```
+
+## Architecture
+
+### Key Modules
+
+- `src/lib/browser.js` - Browser automation wrapper around agent-browser
+- `src/lib/database.js` - SQLite database operations
+- `src/lib/detector.js` - Todo type detection from titles
+- `src/lib/detail-handlers.js` - Type-specific detail page handlers
+- `src/lib/web-extractor.js` - JavaScript injection for data extraction
+
+### Commands
+
+- `src/commands/sync.js` - Sync todos from OA system
+- `src/commands/list.js` - List todos
+- `src/commands/show.js` - Show todo details
+- `src/commands/approve.js` - Approve todos
+- `src/commands/status.js` - Show statistics
+- `src/commands/daemon.js` - Manage browser daemon
 
 ## Common Development Tasks
 
-When modifying scripts:
+When modifying the CLI:
 1. Preserve the state load/save mechanism - it's core to performance
-2. Maintain the `check_login_valid()` function pattern
+2. Use the handler pattern in `detail-handlers.js` for type-specific logic
 3. Keep session names unique using timestamps
 4. Ensure sessions are closed on exit (even on errors)
-5. Use the same URL patterns for consistency
+5. Use `evalWithFile()` for JavaScript execution to avoid JSON truncation
