@@ -6,17 +6,36 @@
   "bin": {
     "oa-todo": "./bin/oa-todo.js"
   },
+  "publishConfig": {
+    "registry": "https://packages.aliyun.com/65965d7d0cab697efe133840/npm/npm-registry/"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "publish:internal": "npm publish --registry=https://packages.aliyun.com/65965d7d0cab697efe133840/npm/npm-registry/"
   },
   "keywords": [
     "oa",
     "todo",
     "approval",
-    "xgd"
+    "xgd",
+    "cli",
+    "新国都",
+    "审批",
+    "待办"
   ],
-  "author": "OpenCode",
+  "author": "XGD",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xgd/oa-todo"
+  },
+  "homepage": "https://github.com/xgd/oa-todo#readme",
+  "bugs": {
+    "url": "https://github.com/xgd/oa-todo/issues"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
   "dependencies": {
     "commander": "^11.1.0",
     "sqlite3": "^5.1.6",
@@ -24,8 +43,5 @@
     "ora": "^5.4.1",
     "inquirer": "^8.2.6",
     "cli-table3": "^0.6.3"
-  },
-  "engines": {
-    "node": ">=16.0.0"
   }
 }
