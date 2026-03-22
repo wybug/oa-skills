@@ -23,7 +23,30 @@ async function status(options) {
     console.log(chalk.gray('═'.repeat(60)));
     
     console.log(chalk.bold(`\n总计: ${chalk.cyan(stats.total)} 条待办`));
-    
+
+    // 详情获取进度
+    if (stats.byDetail && stats.byDetail.total > 0) {
+      console.log(chalk.bold('\n详情获取进度:'));
+      console.log(chalk.gray('─'.repeat(40)));
+
+      const detailTable = new Table({
+        head: [chalk.cyan('状态'), chalk.cyan('数量'), chalk.cyan('占比')],
+        colWidths: [15, 10, 10]
+      });
+
+      const withDetail = stats.byDetail.withDetail || 0;
+      const withoutDetail = stats.byDetail.withoutDetail || 0;
+      const total = stats.byDetail.total;
+
+      const withDetailPercent = ((withDetail / total) * 100).toFixed(1);
+      const withoutDetailPercent = ((withoutDetail / total) * 100).toFixed(1);
+
+      detailTable.push(['已获取详情', withDetail, `${withDetailPercent}%`]);
+      detailTable.push(['待获取详情', withoutDetail, `${withoutDetailPercent}%`]);
+
+      console.log(detailTable.toString());
+    }
+
     // 按状态统计
     if (options.byStatus || !options.byType) {
       console.log(chalk.bold('\n按状态统计:'));

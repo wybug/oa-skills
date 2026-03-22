@@ -229,7 +229,6 @@ class Database {
       SELECT * FROM todos
       WHERE detail_path IS NULL
          OR snapshot_path IS NULL
-         OR screenshot_path IS NULL
       ORDER BY received_at DESC
     `;
 
@@ -286,6 +285,20 @@ class Database {
   }
 
   /**
+   * 获取详情获取进度统计
+   */
+  async getDetailStats() {
+    const sql = `
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN detail_path IS NOT NULL THEN 1 ELSE 0 END) as withDetail,
+        SUM(CASE WHEN detail_path IS NULL THEN 1 ELSE 0 END) as withoutDetail
+      FROM todos
+    `;
+    return this.get(sql);
+  }
+
+  /**
    * 获取统计信息
    */
   async getStats() {
@@ -296,8 +309,8 @@ class Database {
 
     // 按状态统计
     const statusStats = await this.all(`
-      SELECT status, COUNT(*) as count 
-      FROM todos 
+      SELECT status, COUNT(*) as count
+      FROM todos
       GROUP BY status
     `);
     stats.byStatus = {};
@@ -307,8 +320,8 @@ class Database {
 
     // 按类型统计
     const typeStats = await this.all(`
-      SELECT todo_type, COUNT(*) as count 
-      FROM todos 
+      SELECT todo_type, COUNT(*) as count
+      FROM todos
       GROUP BY todo_type
     `);
     stats.byType = {};
@@ -318,13 +331,16 @@ class Database {
 
     // 按日期统计（最近7天）
     const dateStats = await this.all(`
-      SELECT date(created_at) as date, COUNT(*) as count 
-      FROM todos 
+      SELECT date(created_at) as date, COUNT(*) as count
+      FROM todos
       WHERE created_at >= date('now', '-7 days')
       GROUP BY date(created_at)
       ORDER BY date DESC
     `);
     stats.byDate = dateStats;
+
+    // 详情获取进度统计
+    stats.byDetail = await this.getDetailStats();
 
     return stats;
   }
