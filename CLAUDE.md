@@ -35,6 +35,12 @@ oa-todo status    # Show statistics
 
 The CLI tool uses SQLite for data persistence and supports advanced features like status management, partial fdId matching, and file-based JSON extraction to avoid truncation issues.
 
+**Publishing** (internal registry):
+```bash
+cd oa-todo
+npm run publish:internal
+```
+
 ## Environment Variables (Required)
 
 Configure these in CoPaw Environments:
@@ -42,15 +48,22 @@ Configure these in CoPaw Environments:
 ```bash
 OA_USER_NAME=your_username
 OA_USER_PASSWD=your_password
-OA_STATE_FILE=/tmp/oa_login_state.json  # optional, default shown
-LOGIN_TIMEOUT_MINUTES=25                 # optional, session timeout
+```
+
+**Optional Environment Variables**:
+```bash
+OA_STATE_FILE=~/.oa-todo/login_state.json  # Login state file location
+LOGIN_TIMEOUT_MINUTES=25                   # Session timeout in minutes
+OA_DB_PATH=~/.oa-todo/oa_todos.db          # Database file location
+OA_TODOS_DIR=~/.oa-todo                    # Todos directory
+OA_DETAILS_DIR=~/.oa-todo/details          # Details directory
 ```
 
 **Security**: Never ask users for credentials directly. They must be configured in the environment.
 
 ## Dependencies
 
-- **Node.js** >= 14.0.0
+- **Node.js** >= 16.0.0 (specified in package.json engines field)
 - **agent-browser** - Auto-installed via `npx agent-browser`
 
 ## Todo Types & Actions
@@ -62,28 +75,46 @@ LOGIN_TIMEOUT_MINUTES=25                 # optional, session timeout
 | 费用报销 | expense | 同意、驳回 | 同意/驳回 |
 | 通用流程 | workflow | 通过、驳回、转办 | 通过/驳回 |
 
+**Status Values** (from `src/config.js`):
+- `skip` - Skipped (cannot be processed)
+- `pending` - Pending approval
+- `approved` - Approved/Agreed
+- `rejected` - Rejected
+- `transferred` - Transferred
+- `attended` - Attended (meeting)
+- `not_attended` - Not attended (meeting)
+- `other` - Other
+
 ## Commands
 
 ### sync - Synchronize todos
 
 ```bash
-oa-todo sync                    # Sync all todos (only if local is empty)
-oa-todo sync --limit 10         # Sync first 10 todos
-oa-todo sync --force <fdId>     # Force refresh specific todo detail
-oa-todo sync --force-update     # Reset skip-status todos to pending
-oa-todo sync --skip-detail      # Skip fetching details
-oa-todo sync --login            # Force re-login
+oa-todo sync                        # Sync all todos (default: no detail fetch)
+oa-todo sync --limit 10             # Sync first 10 todos
+oa-todo sync --force <fdId>         # Force refresh specific todo detail
+oa-todo sync --force-update         # Reset skip-status todos to pending
+oa-todo sync --fetch-detail         # Fetch missing details (skips list sync, queries DB)
+oa-todo sync -c 3 --fetch-detail    # Fetch details with 3 concurrent workers
+oa-todo sync --login                # Force re-login
 ```
+
+**Note**: The `--fetch-detail` option is a new workflow that:
+1. Checks login status (without opening pages)
+2. Queries database for todos missing details
+3. Creates multiple browser instances for concurrent detail fetching
+4. Default concurrency is 5, adjustable via `-c` option
 
 ### list - List todos
 
 ```bash
-oa-todo list                    # List pending todos
-oa-todo list --status approved  # List by status
-oa-todo list --type meeting     # List by type
-oa-todo list --limit 50         # Limit results
-oa-todo list --all              # Show all (including non-pending)
-oa-todo list --json             # JSON output
+oa-todo list                          # List pending todos
+oa-todo list --status approved        # List by status
+oa-todo list --type meeting           # List by type
+oa-todo list --limit 50               # Limit results
+oa-todo list --all                    # Show all (including non-pending)
+oa-todo list --json                   # JSON output
+oa-todo list --sort-received desc     # Sort by received time (desc/asc)
 ```
 
 ### show - Show todo details
@@ -115,16 +146,18 @@ oa-todo status --by-date        # Group by date
 ### daemon - Manage browser daemon
 
 ```bash
-oa-todo daemon                  # Show daemon status
-oa-todo daemon start            # Start daemon
-oa-todo daemon stop             # Stop daemon
-oa-todo daemon restart          # Restart daemon
-oa-todo daemon start --headed   # Start with visible browser
+oa-todo daemon                    # Show daemon status (default action)
+oa-todo daemon status             # Show daemon status
+oa-todo daemon start              # Start daemon
+oa-todo daemon stop               # Stop daemon
+oa-todo daemon restart            # Restart daemon
+oa-todo daemon release            # Release daemon resources
+oa-todo daemon start --headed     # Start with visible browser
 ```
 
 ## State File Location
 
-Default: `/tmp/oa_login_state.json`
+Default: `~/.oa-todo/login_state.json` (overridable via `OA_STATE_FILE`)
 
 Contains: Cookies, localStorage, sessionStorage, browser context
 
@@ -132,8 +165,10 @@ Valid for: ~25 minutes (configurable via `LOGIN_TIMEOUT_MINUTES`)
 
 ## Data Storage
 
-- **Database**: SQLite at `/tmp/oa_todos/oa_todos.db`
-- **Todo details**: `/tmp/oa_todos/details/<fdId>/`
+Default location: `~/.oa-todo/` (overridable via `OA_TODOS_DIR`)
+
+- **Database**: SQLite at `~/.oa-todo/oa_todos.db` (or `OA_DB_PATH`)
+- **Todo details**: `~/.oa-todo/details/<fdId>/`
   - `data.json` - Structured data
   - `detail.txt` - Plain text detail
   - `snapshot.txt` - Page snapshot
@@ -159,8 +194,9 @@ Detection is based on title patterns:
 
 ## Debugging
 
-Run with debug mode:
+Run with global debug mode (verbose logging):
 ```bash
+oa-todo --debug sync
 oa-todo --debug approve <fdId> <action>
 ```
 
@@ -179,6 +215,7 @@ oa-todo approve <fdId> <action>
 - `src/lib/detector.js` - Todo type detection from titles
 - `src/lib/detail-handlers.js` - Type-specific detail page handlers
 - `src/lib/web-extractor.js` - JavaScript injection for data extraction
+- `src/config.js` - Constants for status, types, actions, and their mappings
 
 ### Commands
 
