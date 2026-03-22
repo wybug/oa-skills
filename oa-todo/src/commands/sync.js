@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const Database = require('../lib/database');
 const Browser = require('../lib/browser');
+const BrowserPool = require('../lib/browser-pool');
 const { detectTodoType, parseTitle } = require('../lib/detector');
 const { createDetailHandler } = require('../lib/detail-handlers');
 
@@ -78,6 +79,15 @@ async function sync(options) {
 
     // 如果使用 --fetch-detail，跳过列表同步，直接获取详情
     if (options.fetchDetail) {
+      // 先检查是否有需要获取详情的待办（避免不必要的登录检查）
+      const todosNeedingDetails = await db.getTodosWithoutDetails(options.limit);
+
+      if (todosNeedingDetails.length === 0) {
+        spinner.succeed('所有待办详情已完整');
+        await db.close();
+        return;
+      }
+
       spinner.text = '检查登录状态...';
 
       // 检查登录状态（不打开页面）
@@ -137,7 +147,7 @@ async function sync(options) {
 
       // 加载登录状态并获取详情
       await browser.loadState();
-      await fetchTodoDetail(browser, db, options.config, todo);
+      await fetchTodoDetail(browser, db, options.config, todo, { debug: options.debug });
 
       spinner.succeed('详情更新完成！');
       console.log(chalk.gray(`\n待办ID: ${todo.fd_id}`));
@@ -392,7 +402,7 @@ async function sync(options) {
 }
 
 /**
- * 并发获取待办详情
+ * 并发获取待办详情（使用 BrowserPool 优化）
  * @param {Browser} browser - 浏览器实例（用于配置，不直接使用）
  * @param {Database} db - 数据库实例
  * @param {Object} config - 配置对象
@@ -409,58 +419,42 @@ async function fetchDetailsConcurrent(browser, db, config, options) {
     return;
   }
 
-  const requestedConcurrency = options.concurrency || 5;
   const total = todos.length;
+  const requestedInstances = options.concurrency || 1;  // -c 参数指定实例数
 
-  // 实际并发数不超过待办数量
-  const actualConcurrency = Math.min(requestedConcurrency, total);
+  // 计算浏览器实例数和每实例tab数
+  const tabsPerInstance = 5;  // 固定每实例5个tab
+  const instances = Math.min(requestedInstances, total);  // 不超过待办数量
 
-  spinner.text = `需要获取详情: ${total} 条，并发数: ${actualConcurrency}`;
+  const actualConcurrency = instances * tabsPerInstance;
 
-  // 分批处理，每批并发执行
-  const chunks = chunkArray(todos, actualConcurrency);
-  let completed = 0;
+  spinner.text = `需要获取详情: ${total} 条，并发数: ${actualConcurrency} (${instances}实例×${tabsPerInstance}tab)`;
 
-  for (const chunk of chunks) {
-    // 为每个并发任务创建独立的浏览器实例
-    const promises = chunk.map(todo => fetchDetailWithNewBrowser(config, db, todo));
-    await Promise.all(promises);
-    completed += chunk.length;
-    spinner.text = `获取详情进度: ${completed}/${total}`;
-  }
+  // 创建浏览器池
+  const pool = new BrowserPool(config, {
+    instances: instances,
+    tabsPerInstance: tabsPerInstance,
+    debug: options.debug
+  });
 
-  spinner.succeed(`详情获取完成！共 ${total} 条`);
-}
-
-/**
- * 将数组分块
- * @param {Array} array - 要分块的数组
- * @param {number} size - 每块大小
- * @returns {Array} 分块后的数组
- */
-function chunkArray(array, size) {
-  const chunks = [];
-  for (let i = 0; i < array.length; i += size) {
-    chunks.push(array.slice(i, i + size));
-  }
-  return chunks;
-}
-
-/**
- * 使用新浏览器实例获取单个待办详情
- * @param {Object} config - 配置对象
- * @param {Database} db - 数据库实例
- * @param {Object} todo - 待办对象
- */
-async function fetchDetailWithNewBrowser(config, db, todo) {
-  const browser = new Browser(config, { debugMode: false });
   try {
-    await browser.loadState();
-    await fetchTodoDetail(browser, db, config, todo);
-  } catch (error) {
-    console.error(chalk.red(`   ✗ 获取失败: ${todo.fd_id} - ${error.message}`));
+    // 初始化浏览器实例
+    spinner.text = `初始化 ${instances} 个浏览器实例...`;
+    await pool.initialize();
+    spinner.succeed(`浏览器池已就绪 (${instances} 个实例)`);
+
+    // 处理待办
+    spinner.start('正在获取待办详情...');
+    let completed = 0;
+
+    // 使用回调更新进度
+    await pool.processTodos(todos, db);
+
+    spinner.succeed(`详情获取完成！共 ${total} 条`);
+
   } finally {
-    await browser.close();
+    // 确保关闭所有浏览器实例
+    await pool.closeAll();
   }
 }
 
@@ -470,8 +464,10 @@ async function fetchDetailWithNewBrowser(config, db, todo) {
  * @param {Database} db - 数据库实例
  * @param {Object} config - 配置对象
  * @param {Object} todo - 待办对象
+ * @param {Object} detailOptions - 详情选项
+ * @param {boolean} detailOptions.debug - 是否调试模式
  */
-async function fetchTodoDetail(browser, db, config, todo) {
+async function fetchTodoDetail(browser, db, config, todo, detailOptions = {}) {
   const detailDir = path.join(config.detailsDir, todo.fd_id);
 
   if (!fs.existsSync(detailDir)) {
@@ -545,9 +541,12 @@ async function fetchTodoDetail(browser, db, config, todo) {
   const snapshotPath = path.join(detailDir, 'snapshot.txt');
   fs.writeFileSync(snapshotPath, snapshot, 'utf-8');
 
-  // 保存截图
-  const screenshotPath = path.join(detailDir, 'screenshot.png');
-  await browser.screenshot(screenshotPath);
+  // 保存截图（仅在 debug 模式）
+  let screenshotPath = null;
+  if (detailOptions.debug) {
+    screenshotPath = path.join(detailDir, 'screenshot.png');
+    await browser.screenshot(screenshotPath);
+  }
 
   // 保存详情文本（从快照提取）
   const detailPath = path.join(detailDir, 'detail.txt');

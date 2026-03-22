@@ -116,6 +116,8 @@ class Browser {
     await this.exec(`--session ${this.session} close`, { timeout: 5000 });
     await this.exec(`--session ${this.session} open "about:blank"`);
     await this.exec(`--session ${this.session} state load ${this.config.stateFile}`);
+    // 添加一个快照操作来稳定页面状态（确保 CDP 会话完全建立）
+    await this.snapshot();
   }
 
   async open(url, waitTimeout) {
@@ -128,12 +130,229 @@ class Browser {
     await this.exec(`--session ${this.session} wait --load networkidle`, { timeout });
   }
 
-  async screenshot(outputPath) {
-    await this.exec(`--session ${this.session} screenshot ${outputPath}`);
-  }
-
   async snapshot() {
     return await this.exec(`--session ${this.session} snapshot`);
+  }
+
+  /**
+   * 获取当前所有 tabs
+   * @returns {Promise<Array<number>>} Tab 索引数组，如 [0, 1, 2]
+   */
+  async listTabs() {
+    try {
+      const output = await this.exec(`--session ${this.session} tab`);
+      if (this.debugMode) {
+        console.log(`[listTabs] 输出: ${output}`);
+      }
+      // 解析输出，提取 tab 索引
+      // agent-browser 输出格式: "→ [0]  - about:blank"
+      const lines = output.trim().split('\n');
+      const tabs = [];
+      for (const line of lines) {
+        // 匹配格式: [0] 或 [1] 等
+        const match = line.match(/\[(\d+)\]/);
+        if (match) {
+          tabs.push(parseInt(match[1]));
+        }
+      }
+      if (this.debugMode) {
+        console.log(`[listTabs] 解析结果: ${tabs.join(', ')}`);
+      }
+      return tabs;
+    } catch (e) {
+      if (this.debugMode) {
+        console.error(`[listTabs] 错误: ${e.message}`);
+      }
+      return [];
+    }
+  }
+
+  /**
+   * 在新 tab 中打开 URL
+   * @param {string} url - 要打开的 URL
+   * @returns {Promise<number>} 新 tab 的索引
+   */
+  async openInNewTab(url) {
+    try {
+      if (this.debugMode) {
+        console.log(`[openInNewTab] 准备打开 URL: ${url}`);
+      }
+
+      // 先获取当前 tab 列表
+      const beforeTabs = await this.listTabs();
+
+      // 打开新 tab
+      const cmd = `--session ${this.session} tab new ${url}`;
+      if (this.debugMode) {
+        console.log(`[openInNewTab] 执行命令: ${cmd}`);
+      }
+      await this.exec(cmd);
+
+      // 等待新 tab 创建和加载（增加等待时间以支持慢速网络）
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // 获取新 tab 列表
+      const afterTabs = await this.listTabs();
+
+      if (this.debugMode) {
+        console.log(`[openInNewTab] beforeTabs: [${beforeTabs.join(', ')}], afterTabs: [${afterTabs.join(', ')}]`);
+      }
+
+      // 找出新增加的 tab 索引
+      for (const tabIndex of afterTabs) {
+        if (!beforeTabs.includes(tabIndex)) {
+          if (this.debugMode) {
+            console.log(`[openInNewTab] 新 tab 索引: ${tabIndex}`);
+          }
+          return tabIndex; // 返回新 tab 的索引
+        }
+      }
+
+      // 如果没找到新 tab（可能 afterTabs 和 beforeTabs 相同），使用第一个 tab
+      if (afterTabs.length > 0) {
+        if (this.debugMode) {
+          console.log(`[openInNewTab] 使用第一个 tab: ${afterTabs[0]}`);
+        }
+        return afterTabs[0];
+      }
+
+      throw new Error('无法确定新 tab 的索引');
+    } catch (e) {
+      if (this.debugMode) {
+        console.error(`[openInNewTab] 错误: ${e.message}`);
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * 切换到指定 tab
+   * @param {number} index - Tab 索引（从0开始）
+   */
+  async switchToTab(index) {
+    try {
+      if (index === null || index === undefined) {
+        throw new Error('Tab 索引不能为空');
+      }
+      if (this.debugMode) {
+        console.log(`[switchToTab] 切换到 tab ${index}`);
+      }
+      await this.exec(`--session ${this.session} tab ${index}`);
+    } catch (e) {
+      if (this.debugMode) {
+        console.error(`[switchToTab] 错误: ${e.message}`);
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * 关闭指定 tab
+   * @param {number} index - Tab 索引，如果不指定则关闭当前 tab
+   */
+  async closeTab(index = null) {
+    try {
+      if (index !== null && index !== undefined) {
+        await this.exec(`--session ${this.session} tab close ${index}`);
+      } else {
+        await this.exec(`--session ${this.session} tab close`);
+      }
+      // 等待 tab 关闭完成
+      await new Promise(resolve => setTimeout(resolve, 300));
+    } catch (e) {
+      // "Cannot close the last tab" 错误是预期的，不是真正的错误
+      if (!e.message.includes('Cannot close the last tab') && this.debugMode) {
+        console.error(`[closeTab] 错误: ${e.message}`);
+      }
+      // 关闭tab失败通常不是致命错误，继续执行
+    }
+  }
+
+  /**
+   * 创建一个新的空白 tab
+   * @returns {Promise<number>} 新 tab 的索引
+   */
+  async createNewTab() {
+    try {
+      // 先获取当前 tab 列表
+      const beforeTabs = await this.listTabs();
+
+      // 创建空白 tab（不指定 URL）
+      const cmd = `--session ${this.session} tab new`;
+      await this.exec(cmd);
+
+      // 等待新 tab 创建
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // 获取新 tab 列表
+      const afterTabs = await this.listTabs();
+
+      if (this.debugMode) {
+        console.log(`[createNewTab] beforeTabs: [${beforeTabs.join(', ')}], afterTabs: [${afterTabs.join(', ')}]`);
+      }
+
+      // 找出新增加的 tab 索引
+      for (const tabIndex of afterTabs) {
+        if (!beforeTabs.includes(tabIndex)) {
+          if (this.debugMode) {
+            console.log(`[createNewTab] 新 tab 索引: ${tabIndex}`);
+          }
+          return tabIndex;
+        }
+      }
+
+      // 如果没找到新 tab，返回最大索引 + 1
+      const maxIndex = afterTabs.length > 0 ? Math.max(...afterTabs) : -1;
+      const newIndex = maxIndex + 1;
+      if (this.debugMode) {
+        console.log(`[createNewTab] 未找到新 tab，返回: ${newIndex}`);
+      }
+      return newIndex;
+    } catch (e) {
+      if (this.debugMode) {
+        console.error(`[createNewTab] 错误: ${e.message}`);
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * 在指定 tab 中打开 URL（使用 JavaScript 导航，不创建新 tab）
+   * @param {number} tabIndex - Tab 索引
+   * @param {string} url - 要打开的 URL
+   */
+  async openUrlInTab(tabIndex, url) {
+    try {
+      // 先切换到目标 tab
+      await this.switchToTab(tabIndex);
+
+      // 使用 JavaScript 在当前 tab 中导航（避免创建新 tab）
+      // 转义单引号
+      const escapedUrl = url.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      const code = `window.location.href = '${escapedUrl}';`;
+      await this.exec(`--session ${this.session} eval "${code}"`);
+
+      if (this.debugMode) {
+        console.log(`[openUrlInTab] Tab ${tabIndex}: ${url.substring(0, 60)}...`);
+      }
+    } catch (e) {
+      if (this.debugMode) {
+        console.error(`[openUrlInTab] Tab ${tabIndex} 错误: ${e.message}`);
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * 截图（仅在 debug 模式下执行）
+   * @param {string} outputPath - 输出路径
+   */
+  async screenshot(outputPath) {
+    // 仅在 debug 模式下执行截图
+    if (!this.debugMode) {
+      return;
+    }
+    await this.exec(`--session ${this.session} screenshot ${outputPath}`);
   }
 
   /**

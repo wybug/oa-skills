@@ -54,7 +54,7 @@ program
   .option('--force <fdId>', '强制更新指定待办详情')
   .option('--force-update', '强制更新 skip 状态的待办（重置为 pending）', false)
   .option('--fetch-detail', '获取待办详情（默认不同步详情）', false)
-  .option('-c, --concurrency <n>', '详情获取并发数（默认5）', parseInt, 5)
+  .option('-c, --concurrency <n>', '详情获取并发数（默认5）', (v) => parseInt(v, 10), 5)
   .option('--login', '强制重新登录', false)
   .addHelpText('after', `
 
@@ -141,7 +141,11 @@ program
   .option('--open', '在浏览器中打开', false)
   .action(async (fdId, options) => {
     const show = require('../src/commands/show');
-    await show(fdId, { ...options, config });
+    const mergedOptions = {
+      ...options,
+      debug: program.opts().debug
+    };
+    await show(fdId, { ...mergedOptions, config });
   });
 
 // approve 命令

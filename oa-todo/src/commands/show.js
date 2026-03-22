@@ -10,24 +10,26 @@ const Browser = require('../lib/browser');
 const { STATUS_NAMES, TYPE_NAMES } = require('../config');
 
 async function show(fdId, options) {
+  const isDebugMode = options.debug || false;
+
   try {
     // 初始化数据库
     const db = new Database(options.config.dbPath);
     await db.init();
-    
+
     // 获取待办信息（支持部分ID查询）
     const todo = await db.getTodoByPrefix(fdId);
-    
+
     if (!todo) {
       console.log(chalk.red(`未找到待办: ${fdId}`));
       console.log(chalk.yellow('\n请先同步待办: oa-todo sync'));
       await db.close();
       process.exit(1);
     }
-    
+
     // 在浏览器中打开
     if (options.open) {
-      const browser = new Browser(options.config);
+      const browser = new Browser(options.config, { debugMode: isDebugMode });
       
       // 检查登录
       const loginStatus = await browser.checkLoginValid();
@@ -90,36 +92,40 @@ async function show(fdId, options) {
     // 强制刷新详情
     if (options.refresh) {
       console.log(chalk.yellow('\n正在刷新详情...'));
-      
-      const browser = new Browser(options.config);
+
+      const browser = new Browser(options.config, { debugMode: isDebugMode });
       const loginStatus = await browser.checkLoginValid();
-      
+
       if (!loginStatus.valid) {
         console.log(chalk.yellow('需要重新登录'));
         await browser.login();
       }
-      
+
       await browser.loadState();
       await browser.fetchTodoDetail(fdId, todo.href);
-      
+
       const detailDir = path.join(options.config.detailsDir, fdId);
       if (!fs.existsSync(detailDir)) {
         fs.mkdirSync(detailDir, { recursive: true });
       }
-      
+
       const snapshot = await browser.snapshot();
       const snapshotPath = path.join(detailDir, 'snapshot.txt');
       fs.writeFileSync(snapshotPath, snapshot, 'utf-8');
-      
-      const screenshotPath = path.join(detailDir, 'screenshot.png');
-      await browser.screenshot(screenshotPath);
-      
+
+      // 保存截图（仅在 debug 模式）
+      let screenshotPath = null;
+      if (isDebugMode) {
+        screenshotPath = path.join(detailDir, 'screenshot.png');
+        await browser.screenshot(screenshotPath);
+      }
+
       const detailPath = path.join(detailDir, 'detail.txt');
       const detailText = `待办ID: ${todo.fd_id}\n标题: ${todo.title}\n\n=== 页面内容 ===\n\n${snapshot}`;
       fs.writeFileSync(detailPath, detailText, 'utf-8');
-      
+
       await db.updateDetailPaths(fdId, detailPath, snapshotPath, screenshotPath);
-      
+
       console.log(chalk.green('✅ 详情已刷新'));
     }
     

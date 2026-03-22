@@ -227,11 +227,14 @@ async function approve(fdId, action, options) {
     
     // 更新数据库状态
     await db.updateStatus(fdId, newStatus, action, options.comment);
-    
-    // 保存截图作为凭证
-    const screenshotDir = require('path').join(options.config.detailsDir, fdId);
-    const screenshotPath = require('path').join(screenshotDir, `approve_${Date.now()}.png`);
-    await browser.screenshot(screenshotPath);
+
+    // 保存截图作为凭证（仅在 debug 模式）
+    let screenshotPath = null;
+    if (isDebugMode) {
+      const screenshotDir = require('path').join(options.config.detailsDir, fdId);
+      screenshotPath = require('path').join(screenshotDir, `approve_${Date.now()}.png`);
+      await browser.screenshot(screenshotPath);
+    }
 
     // 调试模式：延迟关闭浏览器
     const delaySeconds = options.delay || 3;
@@ -246,11 +249,13 @@ async function approve(fdId, action, options) {
     await db.close();
     
     spinner.succeed('审批完成！');
-    
+
     console.log(chalk.bold.green('\n✅ 审批成功'));
     console.log(`  操作: ${action}`);
     console.log(`  新状态: ${STATUS_NAMES[newStatus]}`);
-    console.log(`  截图: ${screenshotPath}`);
+    if (screenshotPath) {
+      console.log(`  截图: ${screenshotPath}`);
+    }
     
     if (options.comment) {
       console.log(`  意见: ${options.comment}`);

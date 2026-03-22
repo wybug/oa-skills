@@ -15,17 +15,22 @@ npm link  # 全局安装（可选）
 ### 同步待办
 
 ```bash
-# 同步所有待办
+# 同步所有待办列表（不获取详情）
 oa-todo sync
 
-# 限制数量（测试用）
+# 限制同步数量（测试用）
 oa-todo sync --limit 10
 
-# 同步并获取详情
-oa-todo sync --with-detail
+# 获取待办详情（推荐工作流）
+oa-todo sync --fetch-detail          # 获取所有缺失详情
+oa-todo sync --fetch-detail --limit 50  # 分批获取（推荐）
+oa-todo sync -c 3 --fetch-detail     # 使用3个并发实例获取详情
 
-# 强制更新指定待办
+# 强制更新指定待办的详情
 oa-todo sync --force abc123
+
+# 重置已跳过的待办状态
+oa-todo sync --force-update
 
 # 强制重新登录
 oa-todo sync --login
@@ -33,6 +38,11 @@ oa-todo sync --login
 # 调试模式（浏览器可见）
 oa-todo sync --debug
 ```
+
+**说明**：
+- `--fetch-detail`: 跳过列表同步，仅获取缺失详情的待办信息
+- `-c, --concurrency`: 详情获取并发数（默认5），建议使用3-5避免触发防火墙
+- 使用 `--limit` 分批获取可提高稳定性
 
 ### 列出待办
 
@@ -289,3 +299,91 @@ npx agent-browser --session <输出的session> close
 - **EHR类型** (`extractLeaveTable`): 查找包含"假别"、"开始时间"等字段的表格
 
 详细文档请参考：[docs/AI开发RPA脚本指南.md](docs/AI开发RPA脚本指南.md)
+
+## 最佳实践
+
+### 定时同步待办
+
+建议使用 cron 或类似工具定时执行同步任务：
+
+```bash
+# crontab 示例：每10分钟同步一次待办列表
+*/10 * * * * cd /path/to/oa-todo && node bin/oa-todo.js sync
+
+# 每小时获取详情（分批处理）
+0 * * * * cd /path/to/oa-todo && node bin/oa-todo.js sync --fetch-detail --limit 50
+```
+
+### 分批获取详情
+
+当有大量待办需要获取详情时，建议分批处理：
+
+```bash
+# 1. 先同步待办列表
+oa-todo sync
+
+# 2. 检查待办数量
+oa-todo status
+
+# 3. 分批获取详情（每批50条，重复执行直到完成）
+oa-todo sync --fetch-detail --limit 50
+oa-todo status  # 检查剩余未获取详情的待办数量
+# 重复执行直到所有详情获取完毕
+```
+
+### 推荐工作流
+
+```bash
+# 步骤1: 同步待办列表
+oa-todo sync
+
+# 步骤2: 查看统计
+oa-todo status
+
+# 步骤3: 分批获取详情（循环执行直到完成）
+while true; do
+  oa-todo sync --fetch-detail --limit 50
+  sleep 5
+done
+
+# 或手动执行多次，直到 status 显示无需获取详情
+```
+
+### 并发控制
+
+```bash
+# 使用3个并发实例（更稳定，推荐）
+oa-todo sync -c 3 --fetch-detail --limit 50
+
+# 使用5个并发实例（默认值）
+oa-todo sync --fetch-detail --limit 50
+
+# 避免使用过高并发（可能触发防火墙）
+# 不推荐: oa-todo sync -c 10 --fetch-detail
+```
+
+**注意**: 使用高并发（如 `-c 10`）可能触发 SafeLine WAF 防火墙，导致所有请求被阻断。
+
+### 数据存储位置
+
+默认数据存储在 `~/.oa-todo/` 目录：
+
+```bash
+~/.oa-todo/
+├── oa_todos.db          # SQLite 数据库
+├── login_state.json     # 登录状态文件
+└── details/             # 待办详情目录
+    └── <fdId>/          # 每个待办的详情
+        ├── data.json    # 结构化数据
+        ├── detail.txt   # 详情文本
+        ├── snapshot.txt # 页面快照
+        └── screenshot.png # 截图（debug模式）
+```
+
+可通过环境变量自定义：
+
+```bash
+export OA_DB_PATH=/custom/path/oa_todos.db
+export OA_TODOS_DIR=/custom/path/
+export OA_DETAILS_DIR=/custom/path/details/
+```
