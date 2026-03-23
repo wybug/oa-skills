@@ -81,11 +81,15 @@ oa-todo status
 - **使用Markdown表格格式输出**，确保在各平台显示正常
 - 合理设置列宽，避免表格过宽或字段显示不全
 
-### 同步操作超时限制
-- **同步200条待办需要约3分钟**，可能超时
-- **同步50条待办明细需要约15分钟**，可能超时
-- **推荐使用周期性定时更新**（如每小时1次）减少同步失败
-- 使用 `--skip-detail` 可加快同步速度（不获取详情）
+### 同步操作超时限制与定时同步策略
+- **同步待办列表很快**，通常不会超时
+- **获取待办详情较慢**：
+  - 200条待办详情约需3分钟，可能超时
+  - 建议使用 `-c 5` 并发数，或 `--limit 25` 限制数量
+- **推荐使用定时同步策略**：
+  - 🌙 **凌晨全量同步**：`oa-todo sync --fetch-detail -c 5`（凌晨2点）
+  - ☀️ **工作时间增量同步**：`oa-todo sync --fetch-detail -c 5 --limit 25`（每小时，8:00-19:00）
+  - 📋 **仅同步列表**：`oa-todo sync`（速度快，随时可执行）
 
 ### 审批安全确认机制
 **所有审批操作都需要用户确认，但确认方式不同**：
@@ -244,33 +248,73 @@ oa-todo list --status pending
 从OA系统同步待办到本地数据库。
 
 ```bash
-oa-todo sync                      # 智能同步（本地有数据则不同步）
-oa-todo sync --force              # 强制同步（忽略本地数据）
-oa-todo sync --limit 10           # 限制数量（测试用）
-oa-todo sync --skip-detail        # 跳过详情（更快，推荐）
+oa-todo sync                      # 同步待办列表（默认不获取详情）
+oa-todo sync --force <fdId>       # 强制更新指定待办详情
+oa-todo sync --fetch-detail       # 获取缺失详情（跳过列表同步）
+oa-todo sync --limit 10           # 限制同步数量（测试用）
+oa-todo sync -c 3 --fetch-detail  # 使用3个并发获取详情
 oa-todo sync --login              # 强制重新登录
-oa-todo sync --force <fdId>       # 强制更新指定待办
 oa-todo sync --force-update       # 重置skip状态为pending
-oa-todo sync --resume-from <n>    # 从指定页继续
 ```
 
 **💡 智能同步说明**:
-- 首次使用会自动同步
+- 首次使用会自动同步待办列表
+- **默认 `oa-todo sync` 仅同步待办列表，不获取详情**（速度快）
+- 使用 `--fetch-detail` 获取待办详情（较慢，按需使用）
 - 后续使用 `oa-todo list` 查看本地数据即可
-- 只有明确要求或使用 `--force` 才会重新同步
 
 **⚠️ 超时注意事项**:
-- **200条待办同步约需3分钟** - 可能触发超时，建议使用 `--limit` 或 `--skip-detail`
-- **50条明细更新约需15分钟** - 建议使用 `--skip-detail` 加快速度
-- **推荐：配置定时任务每小时同步一次**，避免手动同步超时
+- **同步待办列表很快**，通常不会超时
+- **获取待办详情较慢**：
+  - 200条待办详情约需3分钟 - 可能触发超时
+  - 建议使用 `-c` 降低并发数，或 `--limit` 限制数量
+- **推荐：配置定时任务每小时同步一次待办列表**
 
-**定时同步示例（使用 cron）**:
+**获取详情策略**:
+- 默认不获取详情（推荐）：`oa-todo sync`
+- 需要详情时再获取：`oa-todo sync --fetch-detail`
+- 限制详情数量：`oa-todo sync --fetch-detail --limit 10`
+- 降低并发避免超时：`oa-todo sync -c 3 --fetch-detail`
+
+**定时同步配置（推荐）**:
+
+**使用场景**：避免手动同步超时，保持数据最新
+
+**配置策略**：
 ```bash
-# 每小时同步一次（跳过详情，快速）
-0 * * * * oa-todo sync --force --skip-detail
+# 1. 每天凌晨全量同步详情（推荐凌晨2点执行）
+0 2 * * * oa-todo sync --fetch-detail -c 5
 
-# 或每天早上9点和下午2点同步
-0 9,14 * * * oa-todo sync --force
+# 2. 工作时间每小时同步待办列表 + 25条详情（8:00-19:00）
+0 8-19 * * 1-5 oa-todo sync && oa-todo sync --fetch-detail -c 5 --limit 25
+
+# 说明：
+# - 凌晨全量同步：获取所有待办的完整详情
+# - 工作时间增量同步：每小时同步列表 + 25条最新详情
+# - 1-5 表示周一到周五
+# - 8-19 表示8:00到19:00的整点
+```
+
+**完整cron配置示例**：
+```bash
+# 编辑crontab
+crontab -e
+
+# 添加以下任务
+# OA待办同步 - 每天凌晨2点全量同步详情
+0 2 * * * /usr/local/bin/oa-todo sync --fetch-detail -c 5 >> /tmp/oa-sync.log 2>&1
+
+# OA待办同步 - 工作时间每小时同步列表+25条详情（周一到周五 8:00-19:00）
+0 8-19 * * 1-5 /usr/local/bin/oa-todo sync && /usr/local/bin/oa-todo sync --fetch-detail -c 5 --limit 25 >> /tmp/oa-sync.log 2>&1
+```
+
+**验证定时任务**：
+```bash
+# 查看当前的cron任务
+crontab -l
+
+# 查看同步日志
+tail -f /tmp/oa-sync.log
 ```
 
 ### list/ls - 列出待办
@@ -601,12 +645,31 @@ oa-todo show <会议ID>
 oa-todo approve <会议ID> 参加 --force
 ```
 
-### 🎯 场景5：定时自动同步
+### 🎯 场景5：配置定时自动同步（推荐）
 
 ```bash
-# 使用 cron 技能设置定时同步
-# 每小时同步一次，跳过详情以避免超时
-oa-todo sync --force --skip-detail
+# 使用 cron 技能设置定时同步，避免手动同步超时
+
+# 步骤1：编辑crontab
+crontab -e
+
+# 步骤2：添加以下定时任务
+
+# 策略1：每天凌晨2点全量同步详情
+0 2 * * * oa-todo sync --fetch-detail -c 5
+
+# 策略2：工作时间每小时同步列表+25条详情（周一到周五 8:00-19:00）
+0 8-19 * * 1-5 oa-todo sync && oa-todo sync --fetch-detail -c 5 --limit 25
+
+# 步骤3：验证配置
+crontab -l  # 查看当前任务
+tail -f /tmp/oa-sync.log  # 查看同步日志（如果配置了日志输出）
+
+# 说明：
+# - 凌晨全量同步：确保每天有完整的待办详情数据
+# - 工作时间增量同步：保持待办列表最新 + 获取最新25条详情
+# - 避免工作时间全量同步导致超时
+# - -c 5 使用5个并发，平衡速度和稳定性
 ```
 
 ---
@@ -648,9 +711,34 @@ AGENT_BROWSER_HEADED=1 oa-todo sync
 
 ### 同步超时怎么办？
 
-1. 使用 `--skip-detail` 跳过详情获取
-2. 使用 `--limit` 限制同步数量
-3. 配置定时任务，每小时自动同步一次
+**推荐方案**：配置定时任务自动同步
+
+1. **凌晨全量同步详情**（避免工作时间超时）：
+   ```bash
+   # 每天凌晨2点全量同步
+   0 2 * * * oa-todo sync --fetch-detail -c 5
+   ```
+
+2. **工作时间增量同步**（每小时同步列表+25条详情）：
+   ```bash
+   # 周一到周五 8:00-19:00 的整点执行
+   0 8-19 * * 1-5 oa-todo sync && oa-todo sync --fetch-detail -c 5 --limit 25
+   ```
+
+3. **手动同步策略**：
+   - 仅同步列表：`oa-todo sync`（快，不会超时）
+   - 限制详情数量：`oa-todo sync --fetch-detail -c 5 --limit 10`
+   - 降低并发数：`oa-todo sync --fetch-detail -c 3`
+
+**完整配置示例**：
+```bash
+# 编辑crontab
+crontab -e
+
+# 添加以下两行
+0 2 * * * oa-todo sync --fetch-detail -c 5 >> /tmp/oa-sync.log 2>&1
+0 8-19 * * 1-5 oa-todo sync && oa-todo sync --fetch-detail -c 5 --limit 25 >> /tmp/oa-sync.log 2>&1
+```
 
 ---
 
