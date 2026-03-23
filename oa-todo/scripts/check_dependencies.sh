@@ -1,1 +1,0 @@
-/Users/wangyun/.copaw/active_skills/query-oa-approval/scripts/check_dependencies.sh

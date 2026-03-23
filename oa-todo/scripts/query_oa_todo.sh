@@ -1,1 +1,0 @@
-/Users/wangyun/.copaw/active_skills/query-oa-approval/scripts/query_oa_todo.sh

@@ -10,7 +10,6 @@
     "registry": "https://packages.aliyun.com/65965d7d0cab697efe133840/npm/npm-registry/"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "publish:internal": "npm publish --registry=https://packages.aliyun.com/65965d7d0cab697efe133840/npm/npm-registry/"
   },
   "keywords": [
