@@ -13,8 +13,8 @@ function detectTodoType(title) {
     return TODO_TYPE.UNKNOWN;
   }
 
-  // 会邀类：标题以"邀请您参加会议"开头
-  if (title.startsWith('邀请您参加会议')) {
+  // 会邀类：标题包含"邀您参会"或"邀请您参加会议"
+  if (title.includes('邀您参会') || title.startsWith('邀请您参加会议')) {
     return TODO_TYPE.MEETING;
   }
 
@@ -66,8 +66,18 @@ function parseTitle(title) {
     if (match) {
       result.subject = match[1].trim();
     } else {
-      // 简单提取
-      result.subject = title.replace('邀请您参加会议：', '').split('，')[0];
+      // 简单提取（支持多种前缀格式）
+      const prefixes = ['邀请您参加会议：', '邀您参会：', '邀请您参加会议', '邀您参会'];
+      for (const prefix of prefixes) {
+        if (title.startsWith(prefix)) {
+          result.subject = title.slice(prefix.length).split('，')[0].trim();
+          break;
+        }
+      }
+      // 如果没有匹配前缀，使用原始标题
+      if (result.subject === title) {
+        result.subject = title.split('，')[0].replace(/^[：:]\s*/, '');
+      }
     }
   }
 
