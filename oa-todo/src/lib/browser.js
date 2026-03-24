@@ -406,7 +406,8 @@ class Browser {
         "elem.style.cssText = 'position:fixed;top:0;left:0;z-index:-9999;opacity:0;pointer-events:none;width:1px;height:1px;overflow:hidden;';" +
         "document.body.appendChild(elem);}" +
         "const jsonStr = JSON.stringify(result);" +
-        "elem.textContent = '<<<START>>>' + jsonStr + '<<<END>>>';" +
+        "const base64Str = btoa(unescape(encodeURIComponent(jsonStr)));" +
+        "elem.textContent = '<<<START>>>' + base64Str + '<<<END>>>';" +
         "elem.setAttribute('data-size', jsonStr.length);" +
         "return 'EVAL_SUCCESS';" +
         "} catch (e) {" +
@@ -459,18 +460,18 @@ class Browser {
     // 5. 从快照中提取结果
     const match = snapshot.match(/<<<START>>>(.+?)<<<END>>>/s);
     if (match) {
-      let jsonStr = match[1];
-      // 验证结果大小
-      if (jsonStr.length > 10 * 1024 * 1024) { // 10MB
-        throw new Error(`结果过大: ${jsonStr.length} 字节`);
+      const base64Str = match[1];
+      // 验证结果大小（Base64后大约比原JSON大33%）
+      if (base64Str.length > 15 * 1024 * 1024) { // 15MB
+        throw new Error(`结果过大: ${base64Str.length} 字节`);
       }
 
-      // 修复Linux系统上的转义问题（{\"success\":true} 而不是 {"success":true}）
-      if (jsonStr.includes('\\"')) {
-        if (debug) {
-          console.log(`[evalWithFile] 检测到Linux转义问题，进行修复...`);
-        }
-        jsonStr = jsonStr.replace(/\\"/g, '"');
+      // Base64解码
+      let jsonStr;
+      try {
+        jsonStr = decodeURIComponent(escape(atob(base64Str)));
+      } catch (e) {
+        throw new Error(`Base64解码失败: ${e.message}`);
       }
 
       try {
