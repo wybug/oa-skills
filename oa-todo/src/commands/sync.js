@@ -203,6 +203,9 @@ async function sync(options) {
     // 翻页获取所有待办
     spinner.start('正在获取待办列表...');
 
+    // 用于收集所有同步的 fdId（用于标记已处理的待办）
+    const syncedFdIds = new Set();
+
     let totalCount = 0;
     let newCount = 0;
     let updateCount = 0;
@@ -281,6 +284,9 @@ async function sync(options) {
           console.log(chalk.yellow(`   ⚠️  无法提取fdId: ${todo.title.substring(0, 40)}...`));
           continue;
         }
+
+        // 收集 fdId（用于标记已处理的待办）
+        syncedFdIds.add(todo.fdId);
 
         totalCount++;
 
@@ -370,6 +376,22 @@ async function sync(options) {
       }
     }
 
+    // 同步完成后，标记已处理的待办（仅全量同步）
+    const isFullSync = !options.limit && !options.fetchDetail && !options.force;
+    let processResult = null;
+
+    if (isFullSync && syncedFdIds.size > 0) {
+      spinner.start('检查已处理的待办...');
+
+      processResult = await db.markProcessed([...syncedFdIds]);
+
+      if (processResult.marked > 0) {
+        spinner.succeed(`已标记 ${processResult.marked} 条待办为"已处理"`);
+      } else {
+        spinner.stop();
+      }
+    }
+
     await browser.close();
     await db.close();
 
@@ -385,6 +407,9 @@ async function sync(options) {
     }
     if (resetCount > 0) {
       console.log(`  重置: ${chalk.yellow(resetCount)} 条 (skip → pending)`);
+    }
+    if (processResult && processResult.marked > 0) {
+      console.log(`  已处理: ${chalk.gray(processResult.marked)} 条 (从OA移除)`);
     }
 
     console.log(chalk.gray(`\n数据库: ${options.config.dbPath}`));
