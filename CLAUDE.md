@@ -33,7 +33,7 @@ oa-todo approve <fdId> <action>  # Approve todo
 oa-todo status    # Show statistics
 ```
 
-The CLI tool uses SQLite for data persistence and supports advanced features like status management, partial fdId matching, and file-based JSON extraction to avoid truncation issues.
+The CLI tool uses SQLite for data persistence and supports advanced features like status management and file-based JSON extraction to avoid truncation issues.
 
 **Publishing** (internal registry):
 ```bash

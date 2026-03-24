@@ -1,281 +1,445 @@
 {
   "skill_name": "query-oa-approval",
-  "version": "2.1.0",
-  "created_at": "2025-03-18",
-  "description": "OA费控系统审批自动化技能测试用例",
+  "version": "3.0.0",
+  "created_at": "2025-03-23",
+  "updated_at": "2025-03-23",
+  "description": "OA待办管理CLI技能测试用例 - 基于oa-todo CLI工具",
   "evals": [
     {
       "id": 1,
-      "name": "query-pending-approvals",
+      "name": "view-todo-list",
       "category": "query",
-      "prompt": "帮我查一下OA系统里有哪些待审批的单子",
-      "expected_output": "使用 query_approval.sh 查询待审批列表",
-      "expected_script": "query_approval.sh",
+      "prompt": "查看我的OA待办列表",
+      "expected_output": "使用 oa-todo list 和 oa-todo status 查询待办",
       "expected_actions": [
-        "推荐使用 query_approval.sh 脚本",
-        "提供查询命令示例",
-        "提醒这是查询专用脚本，不执行审批"
+        "执行 oa-todo list 获取待办列表",
+        "执行 oa-todo status 获取统计信息",
+        "展示优化后的Markdown表格",
+        "翻译类型和状态为中文"
       ],
       "assertions": [
         {
-          "name": "使用正确的脚本",
-          "check": "应使用 query_approval.sh 而不是 approve.sh",
-          "expected": "query_approval.sh",
+          "name": "使用list命令",
+          "check": "应使用 oa-todo list 命令",
+          "expected": "oa-todo list",
           "critical": true
         },
         {
-          "name": "提供命令示例",
-          "check": "应提供完整的命令示例",
-          "expected": "./scripts/query_approval.sh",
+          "name": "使用status命令",
+          "check": "应同时执行 oa-todo status 获取统计",
+          "expected": "oa-todo status",
           "critical": true
+        },
+        {
+          "name": "提供下一步提示",
+          "check": "应提供下一步操作提示（查看详情、审批等）",
+          "expected": "下一步",
+          "critical": false
         }
       ]
     },
     {
       "id": 2,
-      "name": "approve-single-document",
+      "name": "approve-single-todo",
       "category": "approval",
-      "prompt": "帮我审批一下单号 FK20250101001，同意",
-      "expected_output": "使用 approve.sh 执行审批",
-      "expected_script": "approve.sh",
+      "prompt": "审批第一个待办，通过",
+      "expected_output": "使用 oa-todo approve 执行审批",
       "expected_actions": [
-        "使用 approve.sh 脚本",
-        "提醒需要先执行 login.sh（如果首次使用）",
-        "提供完整命令：./scripts/approve.sh FK20250101001 同意",
-        "说明这是审批专用脚本"
+        "展示该待办的详细信息",
+        "询问用户确认",
+        "用户确认后执行 oa-todo approve <id> 通过 --force"
       ],
       "assertions": [
         {
-          "name": "使用正确的脚本",
-          "check": "应使用 approve.sh 而不是 query_approval.sh",
-          "expected": "approve.sh",
+          "name": "展示详情",
+          "check": "应先展示待办详细信息",
+          "expected": "详情",
           "critical": true
         },
         {
-          "name": "提醒登录状态",
-          "check": "应提醒需要先登录保存状态",
-          "expected": "login.sh",
+          "name": "用户确认",
+          "check": "应询问用户确认",
+          "expected": "确认",
           "critical": true
         },
         {
-          "name": "提供完整命令",
-          "check": "应提供完整的审批命令",
-          "expected": "./scripts/approve.sh FK20250101001 同意",
+          "name": "使用approve命令",
+          "check": "应使用 oa-todo approve 命令",
+          "expected": "oa-todo approve",
+          "critical": true
+        },
+        {
+          "name": "使用通过动作",
+          "check": "应使用'通过'作为审批动作",
+          "expected": "通过",
           "critical": true
         }
       ]
     },
     {
       "id": 3,
-      "name": "reject-with-reason",
-      "category": "approval",
-      "prompt": "单号 FK20250101002 要驳回，原因是费用超标了",
-      "expected_output": "使用 approve.sh 执行驳回并填写原因",
-      "expected_script": "approve.sh",
+      "name": "batch-approve-with-numbers",
+      "category": "batch",
+      "prompt": "通过第1、3、5个待办",
+      "expected_output": "使用Markdown表格展示待办列表，用户确认后逐个执行",
       "expected_actions": [
-        "使用 approve.sh 脚本",
-        "提供驳回命令：./scripts/approve.sh FK20250101002 驳回 费用超标",
-        "说明驳回时建议填写原因"
+        "通过Markdown表格展示待办列表",
+        "询问用户确认",
+        "用户确认后自动逐个执行 oa-todo approve <id> 通过 --force"
       ],
       "assertions": [
         {
-          "name": "使用驳回动作",
-          "check": "应使用'驳回'作为审批动作",
-          "expected": "驳回",
+          "name": "展示表格",
+          "check": "应使用Markdown表格展示待办",
+          "expected": "|",
           "critical": true
         },
         {
-          "name": "包含驳回原因",
-          "check": "应在命令中包含驳回原因",
-          "expected": "费用超标",
+          "name": "用户确认",
+          "check": "应询问用户确认",
+          "expected": "确认",
           "critical": true
         },
         {
-          "name": "命令格式正确",
-          "check": "应提供格式正确的完整命令",
-          "expected": "./scripts/approve.sh FK20250101002 驳回 费用超标",
+          "name": "逐个执行",
+          "check": "应说明会逐个执行审批命令",
+          "expected": "逐个",
           "critical": true
         }
       ]
     },
     {
       "id": 4,
-      "name": "batch-approve-multiple",
+      "name": "batch-approve-with-condition",
       "category": "batch",
-      "prompt": "我有10个单子要批，怎么批量处理？",
-      "expected_output": "介绍 batch_approve.sh 的使用方法",
-      "expected_script": "batch_approve.sh",
+      "prompt": "通过所有张三提交的待办",
+      "expected_output": "筛选张三提交的待办，展示列表，确认后逐个执行",
       "expected_actions": [
-        "推荐使用 batch_approve.sh",
-        "说明如何创建 CSV 清单文件",
-        "提供清单文件格式示例",
-        "提供执行命令示例",
-        "说明并发控制"
+        "筛选张三提交的待办",
+        "通过Markdown表格展示筛选结果",
+        "询问用户确认",
+        "确认后逐个执行审批"
       ],
       "assertions": [
         {
-          "name": "推荐批量脚本",
-          "check": "应推荐使用 batch_approve.sh",
-          "expected": "batch_approve.sh",
+          "name": "筛选条件",
+          "check": "应按提交人筛选（张三）",
+          "expected": "张三",
           "critical": true
         },
         {
-          "name": "说明清单格式",
-          "check": "应说明 CSV 清单文件格式",
-          "expected": "单号,动作,审批意见",
+          "name": "展示列表",
+          "check": "应展示筛选后的待办列表",
+          "expected": "待办",
           "critical": true
         },
         {
-          "name": "提供示例",
-          "check": "应提供清单文件示例",
-          "expected": "FK",
-          "critical": false
-        },
-        {
-          "name": "说明并发控制",
-          "check": "应提及并发数控制",
-          "expected": "3",
-          "critical": false
+          "name": "用户确认",
+          "check": "应询问用户确认",
+          "expected": "确认",
+          "critical": true
         }
       ]
     },
     {
       "id": 5,
-      "name": "troubleshoot-not-found",
-      "category": "troubleshooting",
-      "prompt": "approve.sh 提示单据不存在，怎么办？",
-      "expected_output": "提供故障排查步骤",
+      "name": "meeting-invitation-accept",
+      "category": "meeting",
+      "prompt": "同意参加第一个会议",
+      "expected_output": "识别为会议邀请，执行参加动作",
       "expected_actions": [
-        "说明智能查询功能",
-        "解释审批记录查询",
-        "提供可视化调试方法",
-        "列出可能的原因"
+        "识别为会议邀请类型",
+        "将'同意'映射为'参加'动作",
+        "执行 oa-todo approve <id> 参加 --force"
       ],
       "assertions": [
         {
-          "name": "解释智能查询",
-          "check": "应说明脚本会自动在审批记录中查询",
-          "expected": "审批记录",
+          "name": "识别会议类型",
+          "check": "应识别为会议邀请",
+          "expected": "会议",
           "critical": true
         },
         {
-          "name": "提供调试方法",
-          "check": "应提供可视化调试方法",
-          "expected": "AGENT_BROWSER_HEADED=1",
+          "name": "动作映射",
+          "check": "应将'同意'映射为'参加'",
+          "expected": "参加",
           "critical": true
         },
         {
-          "name": "列出可能原因",
-          "check": "应列出单据未找到的可能原因",
-          "expected": "单号错误",
-          "critical": false
+          "name": "使用approve命令",
+          "check": "应使用 oa-todo approve 命令",
+          "expected": "oa-todo approve",
+          "critical": true
         }
       ]
     },
     {
       "id": 6,
-      "name": "casual-request",
-      "category": "trigger",
-      "prompt": "批一下这个单子 FK20250101003",
-      "expected_output": "识别为审批请求，使用 approve.sh",
-      "expected_script": "approve.sh",
+      "name": "meeting-invitation-decline",
+      "category": "meeting",
+      "prompt": "不同意这个会议",
+      "expected_output": "将'不同意'映射为'不参加'动作",
       "expected_actions": [
-        "正确识别为审批操作",
-        "推荐使用 approve.sh",
-        "询问审批动作（同意或驳回）",
-        "提供命令示例"
+        "识别为会议邀请类型",
+        "将'不同意'映射为'不参加'动作",
+        "执行 oa-todo approve <id> 不参加 --force"
       ],
       "assertions": [
         {
-          "name": "识别审批意图",
-          "check": "应正确识别为审批操作",
-          "expected": "approve.sh",
-          "critical": true
-        },
-        {
-          "name": "询问审批动作",
-          "check": "应询问同意还是驳回",
-          "expected": "同意",
+          "name": "动作映射",
+          "check": "应将'不同意'映射为'不参加'",
+          "expected": "不参加",
           "critical": true
         }
       ]
     },
     {
       "id": 7,
-      "name": "view-todo-list",
+      "name": "view-todo-details",
       "category": "query",
-      "prompt": "看看我的OA待办",
-      "expected_output": "使用 query_approval.sh 查询待审批",
-      "expected_script": "query_approval.sh",
+      "prompt": "查看第1个待办的详细信息",
+      "expected_output": "使用 oa-todo show 查看详情",
       "expected_actions": [
-        "识别为查询请求",
-        "推荐使用 query_approval.sh",
-        "提供查询命令"
+        "使用 oa-todo show <fdId> 查看详情",
+        "支持部分fdId匹配"
       ],
       "assertions": [
         {
-          "name": "识别查询意图",
-          "check": "应正确识别为查询操作",
-          "expected": "query_approval.sh",
+          "name": "使用show命令",
+          "check": "应使用 oa-todo show 命令",
+          "expected": "oa-todo show",
           "critical": true
         },
         {
-          "name": "提供查询命令",
-          "check": "应提供查询命令",
-          "expected": "./scripts/query_approval.sh",
-          "critical": true
+          "name": "支持部分匹配",
+          "check": "应说明支持部分fdId匹配",
+          "expected": "部分",
+          "critical": false
         }
       ]
     },
     {
       "id": 8,
-      "name": "login-expired",
-      "category": "troubleshooting",
-      "prompt": "审批时提示'未能进入费控系统'，怎么办？",
-      "expected_output": "说明登录状态过期，需要重新登录",
+      "name": "sync-todos",
+      "category": "sync",
+      "prompt": "同步OA待办",
+      "expected_output": "使用 oa-todo sync 同步待办",
       "expected_actions": [
-        "识别为登录状态过期问题",
-        "提供重新登录的解决方案",
-        "说明登录状态有效期"
+        "执行 oa-todo sync 同步待办列表",
+        "说明默认不获取详情（速度快）",
+        "可选：说明如何获取详情"
       ],
       "assertions": [
         {
-          "name": "识别问题",
-          "check": "应识别为登录状态过期",
-          "expected": "过期",
+          "name": "使用sync命令",
+          "check": "应使用 oa-todo sync 命令",
+          "expected": "oa-todo sync",
           "critical": true
         },
         {
-          "name": "提供解决方案",
-          "check": "应提供重新登录的命令",
-          "expected": "./scripts/login.sh",
-          "critical": true
-        },
-        {
-          "name": "说明有效期",
-          "check": "应说明登录状态有效期（约30分钟）",
-          "expected": "30",
+          "name": "说明默认行为",
+          "check": "应说明默认只同步列表",
+          "expected": "列表",
           "critical": false
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "name": "complex-approval-flow",
+      "category": "complex",
+      "prompt": "复杂审批第1个待办，需要深度审查",
+      "expected_output": "识别为复杂审批，使用断点模式进行深度分析",
+      "expected_actions": [
+        "识别为需要深度审查的复杂审批",
+        "使用 oa-todo approve <id> --pause 创建断点",
+        "提取并总结待办资料",
+        "询问用户关注点",
+        "进行深度分析",
+        "提供审批建议"
+      ],
+      "assertions": [
+        {
+          "name": "识别复杂审批",
+          "check": "应识别为需要深度审查的复杂审批",
+          "expected": "复杂",
+          "critical": true
+        },
+        {
+          "name": "使用断点模式",
+          "check": "应使用 --pause 参数创建断点",
+          "expected": "--pause",
+          "critical": true
+        },
+        {
+          "name": "提取资料",
+          "check": "应提取并总结待办资料",
+          "expected": "总结",
+          "critical": true
+        },
+        {
+          "name": "询问关注点",
+          "check": "应询问用户关注点",
+          "expected": "关注",
+          "critical": true
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "name": "type-status-filter",
+      "category": "query",
+      "prompt": "查看所有会议邀请",
+      "expected_output": "使用 oa-todo list --type meeting 查看会议邀请",
+      "expected_actions": [
+        "使用 --type meeting 筛选会议邀请",
+        "展示筛选后的待办列表"
+      ],
+      "assertions": [
+        {
+          "name": "使用type参数",
+          "check": "应使用 --type meeting 参数",
+          "expected": "--type meeting",
+          "critical": true
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "name": "natural-language-batch",
+      "category": "batch",
+      "prompt": "批量审批前5个待办",
+      "expected_output": "提取前5个待办，展示列表，确认后逐个执行",
+      "expected_actions": [
+        "提取前5个待办的ID",
+        "通过Markdown表格展示",
+        "询问用户确认",
+        "确认后逐个执行"
+      ],
+      "assertions": [
+        {
+          "name": "提取数量",
+          "check": "应提取前5个待办",
+          "expected": "5",
+          "critical": true
+        },
+        {
+          "name": "展示列表",
+          "check": "应通过表格展示待办",
+          "expected": "|",
+          "critical": true
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "name": "sync-timeout-handling",
+      "category": "troubleshooting",
+      "prompt": "同步超时了怎么办",
+      "expected_output": "提供定时同步策略和手动同步方案",
+      "expected_actions": [
+        "说明获取详情较慢可能导致超时",
+        "推荐配置定时同步任务",
+        "提供手动同步策略（--limit, -c参数）"
+      ],
+      "assertions": [
+        {
+          "name": "说明原因",
+          "check": "应说明获取详情较慢",
+          "expected": "详情",
+          "critical": true
+        },
+        {
+          "name": "推荐定时同步",
+          "check": "应推荐配置定时任务",
+          "expected": "定时",
+          "critical": true
+        },
+        {
+          "name": "提供参数方案",
+          "check": "应提供 --limit 或 -c 参数方案",
+          "expected": "--limit",
+          "critical": false
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "name": "casual-trigger",
+      "category": "trigger",
+      "prompt": "批一下单子",
+      "expected_output": "识别为审批请求，询问具体待办和动作",
+      "expected_actions": [
+        "识别为审批操作",
+        "询问要审批哪个待办",
+        "询问审批动作（通过/驳回）"
+      ],
+      "assertions": [
+        {
+          "name": "识别审批意图",
+          "check": "应识别为审批操作",
+          "expected": "审批",
+          "critical": true
+        },
+        {
+          "name": "询问具体信息",
+          "check": "应询问待办和动作",
+          "expected": "哪个",
+          "critical": true
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "name": "translate-type-status",
+      "category": "display",
+      "prompt": "查看待办时需要翻译类型和状态",
+      "expected_output": "将workflow、pending等翻译为中文",
+      "expected_actions": [
+        "翻译workflow为流程审批",
+        "翻译meeting为会议邀请",
+        "翻译pending为待审核",
+        "翻译approved为已同意"
+      ],
+      "assertions": [
+        {
+          "name": "类型翻译",
+          "check": "应将类型翻译为中文",
+          "expected": "流程审批",
+          "critical": true
+        },
+        {
+          "name": "状态翻译",
+          "check": "应将状态翻译为中文",
+          "expected": "待审核",
+          "critical": true
         }
       ]
     }
   ],
   "metadata": {
-    "total_evals": 8,
+    "total_evals": 14,
     "categories": {
-      "query": 2,
-      "approval": 2,
-      "batch": 1,
-      "troubleshooting": 2,
-      "trigger": 1
+      "query": 3,
+      "approval": 1,
+      "batch": 3,
+      "meeting": 2,
+      "sync": 1,
+      "complex": 1,
+      "troubleshooting": 1,
+      "trigger": 1,
+      "display": 1
     },
     "coverage": [
-      "查询待审批",
-      "单个审批（同意/驳回）",
-      "批量审批",
-      "故障排查",
-      "口语化表达触发",
-      "登录状态管理"
+      "查询待办列表",
+      "单个审批",
+      "批量审批（多种方式）",
+      "会议邀请（同意/不同意映射）",
+      "复杂审批流程（断点模式）",
+      "同步操作",
+      "类型状态翻译",
+      "超时处理",
+      "口语化触发"
     ]
   }
 }

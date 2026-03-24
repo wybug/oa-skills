@@ -13,7 +13,8 @@ class Browser {
     this.debugMode = options.debugMode || false;
     // headedMode 由环境变量控制（由 daemon 命令设置）
     this.headedMode = this._getDefaultHeadedMode();
-    this.session = `oa-todo-${Date.now()}`;
+    this.session = options.session || `oa-todo-${Date.now()}`;
+    this.reuseMode = options.reuse || false;  // 复用模式标志
     this.debugInfo = {
       commands: [],
       errors: [],
@@ -23,11 +24,13 @@ class Browser {
     // 反检测参数始终启用
     process.env.AGENT_BROWSER_ARGS = '--disable-blink-features=AutomationControlled';
 
-    // 关闭现有 daemon
-    try {
-      execSync('npx agent-browser close', { timeout: 5000, stdio: 'ignore' });
-    } catch (e) {
-      // 忽略
+    // 复用模式下不关闭现有 daemon
+    if (!this.reuseMode) {
+      try {
+        execSync('npx agent-browser close', { timeout: 5000, stdio: 'ignore' });
+      } catch (e) {
+        // 忽略
+      }
     }
 
     // 根据 headedMode 构建命令（与 debugMode 解耦）
@@ -132,6 +135,22 @@ class Browser {
 
   async snapshot() {
     return await this.exec(`--session ${this.session} snapshot`);
+  }
+
+  /**
+   * 获取当前页面 URL
+   */
+  async getCurrentUrl() {
+    try {
+      const result = await this.exec(`--session ${this.session} eval 'window.location.href'`);
+      // 解析输出，移除可能的引号和换行
+      return result.trim().replace(/^['"]|['"]$/g, '');
+    } catch (e) {
+      if (this.debugMode) {
+        console.error(`[getCurrentUrl] 错误: ${e.message}`);
+      }
+      throw new Error('无法获取当前URL');
+    }
   }
 
   /**

@@ -176,17 +176,11 @@ class Database {
   }
 
   /**
-   * 通过fdId前缀获取待办（支持部分ID查询）
+   * 通过fdId获取待办（仅支持精确匹配）
    */
-  async getTodoByPrefix(fdIdPrefix) {
-    // 先尝试精确匹配
-    let todo = await this.getTodo(fdIdPrefix);
-    
-    if (todo) return todo;
-    
-    // 如果没有精确匹配，尝试前缀匹配
-    const sql = 'SELECT * FROM todos WHERE fd_id LIKE ? LIMIT 1';
-    return this.get(sql, [`${fdIdPrefix}%`]);
+  async getTodoByExactId(fdId) {
+    const sql = 'SELECT * FROM todos WHERE fd_id = ?';
+    return this.get(sql, [fdId]);
   }
 
   /**
