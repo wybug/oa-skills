@@ -11,6 +11,7 @@ const TODO_STATUS = {
   TRANSFERRED: 'transferred',    // 转办理
   ATTENDED: 'attended',          // 参加（会议）
   NOT_ATTENDED: 'not_attended',  // 不参加（会议）
+  PROCESSED: 'processed',        // 已处理（从OA待办列表移除）
   OTHER: 'other'                 // 其他
 };
 
@@ -32,6 +33,7 @@ const STATUS_NAMES = {
   [TODO_STATUS.TRANSFERRED]: '已转办',
   [TODO_STATUS.ATTENDED]: '已参加',
   [TODO_STATUS.NOT_ATTENDED]: '不参加',
+  [TODO_STATUS.PROCESSED]: '已处理',
   [TODO_STATUS.OTHER]: '其他'
 };
 
@@ -53,6 +55,7 @@ const STATUS_COLORS = {
   [TODO_STATUS.TRANSFERRED]: 'cyan',
   [TODO_STATUS.ATTENDED]: 'green',
   [TODO_STATUS.NOT_ATTENDED]: 'gray',
+  [TODO_STATUS.PROCESSED]: 'gray',
   [TODO_STATUS.OTHER]: 'gray'
 };
 

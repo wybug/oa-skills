@@ -190,6 +190,13 @@ class Database {
     let sql = 'SELECT * FROM todos WHERE 1=1';
     const params = [];
 
+    // 默认过滤 processed 状态（除非显式指定）
+    const showProcessed = filters.status === 'processed' || filters.showProcessed;
+
+    if (!showProcessed) {
+      sql += ' AND status != \'processed\'';
+    }
+
     if (filters.status) {
       sql += ' AND status = ?';
       params.push(filters.status);
@@ -345,6 +352,48 @@ class Database {
   async getTodoCount() {
     const result = await this.get('SELECT COUNT(*) as count FROM todos');
     return result ? result.count : 0;
+  }
+
+  /**
+   * 将不在指定列表中的待办标记为已处理
+   * @param {Array<string>} activeFdIds - OA系统中仍存在的待办ID列表
+   * @returns {Object} { marked: number } 被标记的数量
+   */
+  async markProcessed(activeFdIds) {
+    if (activeFdIds.length === 0) {
+      return { marked: 0 };
+    }
+
+    // 先查询将被标记的待办（用于日志记录）
+    const todosToMark = await this.all(`
+      SELECT fd_id, status FROM todos
+      WHERE status = 'pending'
+        AND fd_id NOT IN (${activeFdIds.map(() => '?').join(',')})
+    `, activeFdIds);
+
+    // 更新待办状态为 processed
+    const sql = `
+      UPDATE todos
+      SET status = 'processed',
+          updated_at = datetime('now', 'localtime')
+      WHERE status = 'pending'
+        AND fd_id NOT IN (${activeFdIds.map(() => '?').join(',')})
+    `;
+
+    const result = await this.run(sql, activeFdIds);
+
+    // 记录日志到 logs 表
+    if (todosToMark.length > 0) {
+      const logSql = `
+        INSERT INTO logs (fd_id, action, old_status, new_status, created_at)
+        VALUES (?, 'mark_processed', 'pending', 'processed', datetime('now', 'localtime'))
+      `;
+      for (const todo of todosToMark) {
+        await this.run(logSql, [todo.fd_id]);
+      }
+    }
+
+    return { marked: result.changes };
   }
 
   /**

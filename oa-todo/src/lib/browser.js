@@ -478,11 +478,20 @@ class Browser {
     // 5. 从快照中提取结果
     const match = snapshot.match(/<<<START>>>(.+?)<<<END>>>/s);
     if (match) {
-      const jsonStr = match[1];
+      let jsonStr = match[1];
       // 验证结果大小
       if (jsonStr.length > 10 * 1024 * 1024) { // 10MB
         throw new Error(`结果过大: ${jsonStr.length} 字节`);
       }
+
+      // 修复Linux系统上的转义问题（{\"success\":true} 而不是 {"success":true}）
+      if (jsonStr.includes('\\"')) {
+        if (debug) {
+          console.log(`[evalWithFile] 检测到Linux转义问题，进行修复...`);
+        }
+        jsonStr = jsonStr.replace(/\\"/g, '"');
+      }
+
       try {
         const result = JSON.parse(jsonStr);
         if (debug) {
