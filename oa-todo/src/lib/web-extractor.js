@@ -6,6 +6,7 @@
  */
 
 const fs = require('fs');
+const path = require('path');
 
 /**
  * 生成可在浏览器中执行的 JavaScript 代码字符串
@@ -590,8 +591,261 @@ function generateBreakpointCode(label, info) {
   `;
 }
 
+/**
+ * OATools - OA 操作工具类
+ * 提供 HTTP API 请求和浏览器操作的统一接口
+ */
+class OATools {
+  constructor(config) {
+    this.config = config;
+    this.stateFile = config.stateFile;
+  }
+
+  /**
+   * 从状态文件中提取 Cookie
+   * @returns {string} Cookie 字符串
+   */
+  _extractCookies() {
+    try {
+      if (!fs.existsSync(this.stateFile)) {
+        return '';
+      }
+
+      const stateData = JSON.parse(fs.readFileSync(this.stateFile, 'utf8'));
+      const cookies = stateData.cookies || [];
+
+      // 构建 Cookie 字符串
+      return cookies
+        .map(c => `${c.name}=${c.value}`)
+        .join('; ');
+    } catch (e) {
+      console.error('读取 Cookie 失败:', e.message);
+      return '';
+    }
+  }
+
+  /**
+   * HTTP 请求 - 直接获取数据
+   * @param {string} url - API URL
+   * @param {Object} options - { method, headers, body, timeout, referer }
+   * @returns {Promise<Object>} { status, data, headers }
+   */
+  async http(url, options = {}) {
+    const opts = {
+      method: options.method || 'GET',
+      headers: options.headers || {},
+      body: options.body,
+      timeout: options.timeout || 30000,
+      referer: options.referer || 'https://oa.xgd.com/'
+    };
+
+    // 自动附加 Cookie
+    const cookie = this._extractCookies();
+    if (cookie) {
+      opts.headers['Cookie'] = cookie;
+    }
+
+    // 添加默认请求头（OA 系统需要）
+    if (!opts.headers['Accept']) {
+      opts.headers['Accept'] = 'text/plain, */*; q=0.01';
+    }
+    if (!opts.headers['X-Requested-With']) {
+      opts.headers['X-Requested-With'] = 'XMLHttpRequest';
+    }
+    if (!opts.headers['Referer']) {
+      opts.headers['Referer'] = opts.referer;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), opts.timeout);
+
+      const fetchOptions = {
+        method: opts.method,
+        headers: opts.headers
+      };
+
+      if (opts.body) {
+        fetchOptions.body = opts.body;
+      }
+
+      const response = await fetch(url, {
+        ...fetchOptions,
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      const responseHeaders = {};
+      response.headers.forEach((value, key) => {
+        responseHeaders[key] = value;
+      });
+
+      // 尝试解析 JSON
+      let data;
+      const contentType = responseHeaders['content-type'] || '';
+      if (contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        data = await response.text();
+      }
+
+      return {
+        status: response.status,
+        ok: response.ok,
+        data,
+        headers: responseHeaders
+      };
+    } catch (e) {
+      return {
+        status: 0,
+        ok: false,
+        error: e.message,
+        data: null
+      };
+    }
+  }
+
+  /**
+   * 浏览器操作 - 通过 agent-browser
+   * @param {string} session - 浏览器会话
+   * @param {string} action - 操作类型 (click, eval, snapshot, wait)
+   * @param {Object} params - 参数
+   * @returns {Promise<string>} 命令输出
+   */
+  async browser(session, action, params = {}) {
+    const { execSync } = require('child_process');
+
+    let cmd = `npx agent-browser --session ${session}`;
+
+    switch (action) {
+      case 'click':
+        cmd += ` click --selector "${params.selector}"`;
+        break;
+      case 'eval':
+        cmd += ` eval "${params.code.replace(/"/g, '\\"')}"`;
+        break;
+      case 'snapshot':
+        cmd += ' snapshot';
+        break;
+      case 'wait':
+        if (params.selector) {
+          cmd += ` wait --selector "${params.selector}"`;
+        } else if (params.time) {
+          cmd += ` wait --time ${params.time}`;
+        } else {
+          cmd += ' wait --load networkidle';
+        }
+        break;
+      case 'screenshot':
+        const screenshotPath = params.path || `/tmp/oa-screenshot-${Date.now()}.png`;
+        cmd += ` screenshot ${screenshotPath}`;
+        break;
+      default:
+        throw new Error(`未知的浏览器操作: ${action}`);
+    }
+
+    try {
+      const output = execSync(cmd, {
+        encoding: 'utf8',
+        timeout: params.timeout || 30000,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+      return output;
+    } catch (e) {
+      if (e.stdout) return e.stdout;
+      throw e;
+    }
+  }
+
+  /**
+   * 生成可在 agentUX 中使用的脚本模板
+   * @param {string} session - 浏览器会话
+   * @param {string} url - 当前 URL
+   * @returns {string} JS 脚本模板
+   */
+  generateScriptTemplate(session, url) {
+    return `
+// OA 操作脚本 - 会话: ${session}
+// 当前 URL: ${url}
+
+// ═══════════════════════════════════════════════════════════════
+// URL 监听与追踪
+// ═══════════════════════════════════════════════════════════════
+
+// 获取当前页面 URL
+const currentUrl = await OATools.browser('${session}', 'eval', {
+  code: 'window.location.href'
+}).then(output => output.trim().replace(/^['"]|['"]$/g, ''));
+console.log('当前 URL:', currentUrl);
+
+// 获取所有 iframe 的 URL
+const iframeUrls = await OATools.browser('${session}', 'eval', {
+  code: 'Array.from(document.querySelectorAll("iframe")).map(f => ({ src: f.src, id: f.id, name: f.name }))'
+}).then(output => JSON.parse(output.match(/\\{[\\s\\S]*\\}/)?.[0] || '{}'));
+console.log('Iframe URLs:', iframeUrls);
+
+// 获取页面标题
+const pageTitle = await OATools.browser('${session}', 'eval', {
+  code: 'document.title'
+}).then(output => output.trim().replace(/^['"]|['"]$/g, ''));
+console.log('页面标题:', pageTitle);
+
+// ═══════════════════════════════════════════════════════════════
+// 方式1: HTTP API 请求（推荐用于数据查询）
+// ═══════════════════════════════════════════════════════════════
+
+// 示例: 获取会议室数据
+// const response = await OATools.http(
+//   'https://oa.xgd.com/km/imeeting/km_imeeting_calendar/kmImeetingCalendar.do?method=rescalendar&t=' + Date.now() + '&pageno=1&selectedCategories=all&fdStart=2026-03-24+00%3A00&fdEnd=2026-03-26+00%3A00&s_seq=' + Math.random() + '&s_ajax=true',
+//   { referer: 'https://oa.xgd.com/km/imeeting/km_imeeting_calendar/index_content_place.jsp' }
+// );
+//
+// if (response.ok) {
+//   const rooms = Object.values(response.data.main || {});
+//   console.log('会议室总数:', rooms.length);
+//   rooms.forEach((room, i) => {
+//     console.log((i+1) + '.', room.name, '-', room.floor, room.seats + '人');
+//   });
+// } else {
+//   console.error('请求失败:', response.status, response.error);
+// }
+
+// ═══════════════════════════════════════════════════════════════
+// 方式2: 浏览器操作（用于页面交互）
+// ═══════════════════════════════════════════════════════════════
+
+// 示例: 获取页面快照
+// const snapshot = await OATools.browser('${session}', 'snapshot');
+// console.log(snapshot);
+
+// 示例: 点击按钮
+// await OATools.browser('${session}', 'click', { selector: '#submit-btn' });
+
+// 示例: 填写表单
+// await OATools.browser('${session}', 'eval', {
+//   code: 'document.querySelector("#input-field").value = "test"'
+// });
+
+// 示例: 等待元素
+// await OATools.browser('${session}', 'wait', { selector: '.result' });
+`;
+  }
+}
+
+/**
+ * 创建 OATools 实例的工厂函数
+ * @param {Object} config - 配置对象
+ * @returns {OATools} OATools 实例
+ */
+function createOATools(config) {
+  return new OATools(config);
+}
+
 module.exports = {
   generateClientCode,
   breakpoint,
-  generateBreakpointCode
+  generateBreakpointCode,
+  OATools,
+  createOATools
 };
