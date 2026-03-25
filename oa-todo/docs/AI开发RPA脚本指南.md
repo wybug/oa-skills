@@ -1,408 +1,613 @@
-# AI开发RPA脚本指南
+# AI 开发 RPA 脚本指南
 
-本指南面向 AI 辅助开发 OA 审批系统的 RPA 自动化脚本。
+本指南面向 AI 辅助开发 OA 系统的 RPA 自动化脚本，使用 `oa-todo explore --pause` 命令提供支持。
 
-## 1. 项目概述
+## 1. 快速开始
 
-本项目是一个基于 Node.js 的 CLI 工具，用于自动化处理 OA 系统的待办审批流程。
-
-**技术栈**:
-- Node.js >= 16.0.0
-- agent-browser (基于 Playwright 的浏览器自动化工具)
-- SQLite (本地数据存储)
-
-**系统架构**:
-- `bin/oa-todo.js` - CLI 入口
-- `src/lib/` - 核心库
-  - `browser.js` - 浏览器封装类（包含纯 JS 登录实现）
-  - `web-extractor.js` - 网页数据提取工具库（仅通用功能）
-  - `database.js` - 数据库操作
-  - `detector.js` - 待办类型检测
-- `src/commands/` - 命令实现
-- `src/config.js` - 配置管理
-
-**重要**: 本项目所有功能均使用纯 JavaScript/Node.js 实现，不依赖任何 shell 脚本。
-
-## 2. 工具库设计原则
-
-**重要**: `web-extractor.js` 只提供通用提取功能，不包含任何业务逻辑。
-
-### 2.1 工具库职责
-
-提供通用的数据提取和转换能力：
-- 表格提取
-- 表格转 Markdown
-- 元素查找
-- 页面快照
-
-### 2.2 业务逻辑职责
-
-在具体命令中实现：
-- 待办类型识别
-- 针对不同类型的提取策略
-- 数据格式化和保存
-
-## 3. agent-browser 命令参考
+### 1.1 启动探索会话
 
 ```bash
-# 打开页面
-npx agent-browser --session <name> open <url>
+# 创建暂停会话（自动提供 agentUXContext）
+oa-todo explore "<目标URL>" --pause
 
-# 获取快照
-npx agent-browser --session <name> snapshot
+# 示例：探索会议管理页面
+oa-todo explore "https://oa.xgd.com/km/imeeting/index.jsp" --pause
 
-# 执行 JavaScript
-npx agent-browser --session <name> eval "<code>"
-
-# 保存/加载状态
-npx agent-browser --session <name> state save <file>
-npx agent-browser --session <name> state load <file>
-
-# 关闭会话
-npx agent-browser --session <name> close
+# 示例：探索待办详情页面
+oa-todo explore "https://oa.xgd.com/km/review/km_review_main/kmReviewMain.do?method=view&fdId=<ID>" --pause
 ```
 
-## 4. web-extractor.js API 参考
+### 1.2 会话输出格式
 
-### 4.1 TableExtractor - 表格提取与转换
+```json
+{
+  "status": "checkpoint_created",
+  "session": "oa-todo-explore-explore-1234567890-xxxxx",
+  "url": "https://oa.xgd.com/...",
+  "timeout": 600,
+  "agentUXContext": "// OA 操作脚本...\n# 探索智能体引导文件..."
+}
+```
 
-**浏览器端工具**：
+**关键字段**:
+- `session`: 浏览器会话 ID，用于后续操作
+- `agentUXContext`: 包含完整的操作脚本模板和引导文档
+
+## 2. 两种操作方式
+
+### 2.1 方式1: HTTP API 请求（推荐用于数据查询）
+
+对于纯数据获取操作（如查询会议室、获取待办列表），使用 HTTP 请求更加高效：
 
 ```javascript
-// 提取表格为对象
-WebExtractor.TableExtractor.extractTable('table', {
-  headerRow: 0,
-  skipHeader: true
-});
-// 返回: { success: true, header: [...], data: [...], rowCount: 10 }
-
-// 提取表格并转换为 Markdown
-WebExtractor.TableExtractor.extractTable('table', {
-  headerRow: 0,
-  skipHeader: true,
-  format: 'markdown'
-});
-// 返回: { success: true, header: [...], data: [...], rowCount: 10, markdown: '...' }
-
-// 直接转换数据为 Markdown
-WebExtractor.TableExtractor.toMarkdown(
-  ['姓名', '部门'],
-  [['张三', '技术部'], ['李四', '产品部']],
-  { title: '人员信息' }
+// 在 agentUXContext 中可直接使用的代码模板
+const response = await OATools.http(
+  'https://oa.xgd.com/km/imeeting/km_imeeting_calendar/kmImeetingCalendar.do?method=rescalendar&t=' + Date.now() + '&pageno=1&selectedCategories=all&fdStart=2026-03-24+00%3A00&fdEnd=2026-03-26+00%3A00&s_seq=' + Math.random() + '&s_ajax=true',
+  { referer: 'https://oa.xgd.com/km/imeeting/km_imeeting_calendar/index_content_place.jsp' }
 );
-// 返回: "| 姓名 | 部门 |\n|---|---|\n| 张三 | 技术部 |\n| 李四 | 产品部 |"
-```
 
-**Node.js 端方法**：
-
-```javascript
-await browser.extractTable('table', { skipHeader: true });
-await browser.extractTableAsMarkdown('table', { title: '会议信息' });
-```
-
-### 4.2 DebugHelper - 调试辅助工具
-
-```javascript
-// 获取所有表格概览
-WebExtractor.DebugHelper.getAllTables();
-// 返回: [{ index, rowCount, hasHeader, preview, selector }, ...]
-
-// 获取页面概览
-WebExtractor.DebugHelper.getPageOverview();
-// 返回: { url, title, tables, buttons, inputs, links, forms }
-```
-
-## 5. 待办类型与处理策略
-
-### 5.1 类型识别
-
-在 `detector.js` 中根据标题识别类型：
-
-```javascript
-function detectTodoType(title) {
-  if (title.includes('邀请您参加会议')) return 'meeting';
-  if (title.includes('请假') || title.includes('休假')) return 'ehr';
-  if (title.includes('请审批') || title.includes('提交的流程')) return 'workflow';
-  return 'unknown';
+if (response.ok) {
+  const rooms = Object.values(response.data.main || {});
+  console.log('会议室总数:', rooms.length);
+  rooms.forEach((room, i) => {
+    console.log((i+1) + '.', room.name, '-', room.floor, room.seats + '人');
+  });
+} else {
+  console.error('请求失败:', response.status, response.error);
 }
 ```
 
-### 5.2 提取策略
+**OATools.http 参数说明**:
+- `url` (string): API 端点 URL
+- `options.method` (string): HTTP 方法，默认 'GET'
+- `options.headers` (Object): 自定义请求头
+- `options.body` (string): 请求体（POST/PUT 时使用）
+- `options.timeout` (number): 超时时间（毫秒），默认 30000
+- `options.referer` (string): Referer 头（OA 系统需要）
 
-每种类型使用不同的表格查找策略：
+**返回值**:
+- `status` (number): HTTP 状态码
+- `ok` (boolean): 请求是否成功
+- `data` (any): 响应数据（JSON 或文本）
+- `headers` (Object): 响应头
 
-**meeting（会议）**：
-- 查找包含"会议名称"的表格
-- 提取：会议名称、类型、时间、地点、参加人员等
+### 2.2 方式2: 浏览器操作（用于页面交互）
 
-**workflow（流程）**：
-- 跳过包含"会议名称"和"流程跟踪"的表格
-- 查找第一个包含表单数据的表格
-- 提取：申请人、时间、事由、金额等
-
-**ehr（休假）**：
-- 跳过包含"会议名称"和"流程跟踪"的表格
-- 查找包含"假别"、"开始时间"等字段的表格
-- 提取：假别、时间、天数、代理人等
-
-## 6. 开发流程
-
-### 6.1 实现待办详情提取
-
-在 `sync.js` 的 `fetchTodoDetail` 函数中实现业务逻辑：
+对于需要页面交互的操作（填写表单、点击按钮等），使用浏览器操作：
 
 ```javascript
-async function fetchTodoDetail(browser, db, config, todo) {
-  await browser.open(url);
-  await browser.initExtractor();
+// 获取页面快照
+const snapshot = await OATools.browser(session, 'snapshot');
 
-  let formInfo = {};
-  let formMarkdown = '';
+// 点击按钮
+await OATools.browser(session, 'click', { selector: '#submit-btn' });
 
-  // 根据类型使用不同的提取策略
-  if (todo.todo_type === 'meeting') {
-    const result = await extractMeetingTable(browser);
-    formInfo = result.info;
-    formMarkdown = result.markdown;
-  } else if (todo.todo_type === 'ehr') {
-    const result = await extractLeaveTable(browser);
-    formInfo = result.info;
-    formMarkdown = result.markdown;
-  } else {
-    const result = await extractWorkflowTable(browser);
-    formInfo = result.info;
-    formMarkdown = result.markdown;
-  }
+// 填写表单
+await OATools.browser(session, 'eval', {
+  code: 'document.querySelector("#input-field").value = "test"'
+});
 
-  // 通用部分：流程跟踪、附件
-  const history = await extractWorkflowHistory(browser);
-  const attachments = await extractAttachments(browser);
+// 等待元素出现
+await OATools.browser(session, 'wait', { selector: '.result' });
 
-  // 保存数据
-  const detailData = {
-    fdId: todo.fd_id,
-    todoType: todo.todo_type,
-    formInfo: formInfo,
-    formMarkdown: formMarkdown,
-    workflowHistory: history,
-    attachments: attachments
-  };
-
-  fs.writeFileSync(dataPath, JSON.stringify(detailData, null, 2));
-}
+// 截图保存
+await OATools.browser(session, 'screenshot', { path: '/tmp/screenshot.png' });
 ```
 
-### 6.2 表格提取模式
+**OATools.browser 参数说明**:
+- `session` (string): 浏览器会话 ID（从 checkpoint 输出获取）
+- `action` (string): 操作类型
+  - `click`: 点击元素
+  - `eval`: 执行 JavaScript
+  - `snapshot`: 获取页面快照
+  - `wait`: 等待条件
+  - `screenshot`: 截图
+- `params` (Object): 操作参数（根据 action 不同而不同）
 
-**模式1：根据关键字查找表格**
+## 3. URL 监听与追踪
+
+### 3.1 获取当前页面信息
 
 ```javascript
-async function extractMeetingTable(browser) {
-  const tables = await browser.getAllTables();
+// 获取主页面 URL
+const currentUrl = await OATools.browser(session, 'eval', {
+  code: 'window.location.href'
+}).then(output => output.trim().replace(/^['"]|['"]$/g, ''));
+console.log('当前 URL:', currentUrl);
 
-  // 查找包含"会议名称"的表格
-  const targetTable = tables.find(t => t.preview.includes('会议名称'));
-  if (!targetTable) {
-    return { success: false, info: {}, markdown: '' };
+// 获取页面标题
+const pageTitle = await OATools.browser(session, 'eval', {
+  code: 'document.title'
+}).then(output => output.trim().replace(/^['"]|['"]$/g, ''));
+console.log('页面标题:', pageTitle);
+
+// 获取所有 iframe 的 URL
+const iframeUrls = await OATools.browser(session, 'eval', {
+  code: 'Array.from(document.querySelectorAll("iframe")).map(f => ({ src: f.src, id: f.id, name: f.name }))'
+}).then(output => JSON.parse(output.match(/\{[\s\S]*\}/)?.[0] || '{}'));
+console.log('Iframe URLs:', iframeUrls);
+```
+
+### 3.2 监听页面变化
+
+```javascript
+// 定期检查 URL 变化
+let lastUrl = '';
+setInterval(async () => {
+  const currentUrl = await OATools.browser(session, 'eval', {
+    code: 'window.location.href'
+  }).then(output => output.trim().replace(/^['"]|['"]$/g, ''));
+
+  if (currentUrl !== lastUrl) {
+    console.log('URL 变化:', lastUrl, '->', currentUrl);
+    lastUrl = currentUrl;
+    // 可以在这里添加 URL 变化后的处理逻辑
   }
+}, 2000);
+```
 
-  // 提取表格数据
-  const tableData = await browser.extractTable(
-    `table:nth-of-type(${targetTable.index + 1})`,
-    { skipHeader: false }
-  );
+## 4. 页面分析框架
 
-  // 转换为键值对和 Markdown
-  const info = {};
-  const markdown = ['## 会议信息', ''];
+### 4.1 获取页面快照
 
-  tableData.data.forEach(row => {
-    for (let i = 0; i < row.length; i += 2) {
-      if (i + 1 < row.length && row[i]) {
-        info[row[i]] = row[i + 1];
-        markdown.push(`- **${row[i]}**: ${row[i + 1]}`);
-      }
-    }
+```bash
+npx agent-browser --session <session> snapshot
+```
+
+### 4.2 识别表单字段
+
+```javascript
+// 获取所有表单字段
+const fields = await OATools.browser(session, 'eval', {
+  code: 'Array.from(document.querySelectorAll("input, select, textarea")).map(e => ({tag: e.tagName, type: e.type, id: e.id, name: e.name, placeholder: e.placeholder})).slice(0, 20)'
+}).then(output => JSON.parse(output.match(/\[[\s\S]*\]/)?.[0] || '[]'));
+
+console.log('表单字段:', fields);
+```
+
+### 4.3 识别操作按钮
+
+```javascript
+// 获取所有按钮
+const buttons = await OATools.browser(session, 'eval', {
+  code: 'Array.from(document.querySelectorAll("button, input[type=submit], input[type=button]")).map(b => ({text: b.textContent || b.value, id: b.id, className: b.className})).slice(0, 20)'
+}).then(output => JSON.parse(output.match(/\[[\s\S]*\]/)?.[0] || '[]'));
+
+console.log('页面按钮:', buttons);
+```
+
+### 4.4 查找特定元素
+
+```javascript
+// 查找包含特定文本的元素
+const element = await OATools.browser(session, 'eval', {
+  code: 'Array.from(document.querySelectorAll("*")).find(e => e.textContent.includes("提交") && (e.tagName === "BUTTON" || e.tagName === "A"))?.id'
+}).then(output => output.trim().replace(/^['"]|['"]$/g, ''));
+
+console.log('提交按钮 ID:', element);
+```
+
+## 5. 完整脚本示例
+
+### 5.1 会议室查询脚本
+
+```javascript
+// getMeetingRooms.js
+const fs = require('fs');
+
+// 从状态文件中提取 Cookie
+const stateFile = '/Users/wangyun/.oa-todo/login_state.json';
+const stateData = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+const cookie = stateData.cookies.map(c => `${c.name}=${c.value}`).join('; ');
+
+// OA 系统请求配置
+const OATools = {
+  async http(url, options = {}) {
+    const opts = {
+      method: options.method || 'GET',
+      headers: {
+        'Cookie': cookie,
+        'Accept': 'text/plain, */*; q=0.01',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Referer': options.referer || 'https://oa.xgd.com/',
+        ...options.headers
+      },
+      timeout: options.timeout || 30000
+    };
+
+    const response = await fetch(url, opts);
+    const data = await response.json();
+
+    return {
+      status: response.status,
+      ok: response.ok,
+      data
+    };
+  }
+};
+
+// 获取会议室数据
+async function getMeetingRooms(startDate, endDate) {
+  const url = `https://oa.xgd.com/km/imeeting/km_imeeting_calendar/kmImeetingCalendar.do?method=rescalendar&t=${Date.now()}&pageno=1&selectedCategories=all&fdStart=${startDate}+00%3A00&fdEnd=${endDate}+00%3A00&s_seq=${Math.random()}&s_ajax=true`;
+
+  const response = await OATools.http(url, {
+    referer: 'https://oa.xgd.com/km/imeeting/km_imeeting_calendar/index_content_place.jsp'
   });
 
-  return { success: true, info, markdown: markdown.join('\n') };
-}
-```
-
-**模式2：查找第一个有效表格**
-
-```javascript
-async function extractWorkflowTable(browser) {
-  const tables = await browser.getAllTables();
-
-  // 跳过特定类型的表格
-  const targetTable = tables.find(t =>
-    !t.preview.includes('会议名称') &&
-    !t.preview.includes('流程跟踪') &&
-    !t.preview.includes('节点') &&
-    t.rowCount > 1
-  );
-
-  if (!targetTable) {
-    return { success: false, info: {}, markdown: '## 表单信息\n\n(未找到表单数据)' };
+  if (response.ok) {
+    const rooms = Object.values(response.data.main || {});
+    return {
+      total: response.data.resource.total,
+      rooms: rooms.map(r => ({
+        name: r.name,
+        floor: r.floor,
+        seats: r.seats,
+        bookings: (r.list || []).map(b => ({
+          title: b.title,
+          start: b.start,
+          end: b.end,
+          status: b.statusText
+        }))
+      }))
+    };
   }
-
-  const tableData = await browser.extractTable(
-    `table:nth-of-type(${targetTable.index + 1})`,
-    { skipHeader: false }
-  );
-
-  // 转换数据...
-  const { info, markdown } = convertTableToKeyValue(tableData);
-
-  return { success: true, info, markdown };
+  throw new Error(`请求失败: ${response.status}`);
 }
+
+// 使用示例
+(async () => {
+  const result = await getMeetingRooms('2026-03-24', '2026-03-26');
+  console.log(`会议室总数: ${result.total}`);
+  result.rooms.forEach(room => {
+    console.log(`${room.name} (${room.floor}, ${room.seats}人) - 今日${room.bookings.length}场预约`);
+  });
+})();
 ```
 
-### 6.3 通用提取函数
-
-**提取流程跟踪记录**：
+### 5.2 表单填写脚本
 
 ```javascript
-async function extractWorkflowHistory(browser) {
-  const tables = await browser.getAllTables();
+// fillForm.js
+const { execSync } = require('child_process');
 
-  // 查找流程跟踪表格
-  const historyTable = tables.find(t =>
-    t.preview.includes('流程跟踪') ||
-    (t.preview.includes('节点') && t.preview.includes('处理人'))
-  );
+const session = 'oa-todo-explore-explore-1234567890-xxxxx';
 
-  if (!historyTable) {
-    return [];
-  }
+// OA 系统浏览器操作
+const OATools = {
+  async browser(action, params = {}) {
+    const { execSync } = require('child_process');
+    let cmd = `npx agent-browser --session ${session}`;
 
-  const tableData = await browser.extractTable(
-    `table:nth-of-type(${historyTable.index + 1})`,
-    { skipHeader: false }
-  );
-
-  return tableData.data.filter(row => row.length > 0);
-}
-```
-
-**提取附件列表**：
-
-```javascript
-async function extractAttachments(browser) {
-  const code = `
-    (function() {
-      const attachments = [];
-      document.querySelectorAll('a[href*="download"], a[href*="attachment"]').forEach((a, i) => {
-        if (a.textContent.trim()) {
-          attachments.push({
-            name: a.textContent.trim(),
-            url: a.getAttribute('href')
-          });
+    switch (action) {
+      case 'click':
+        cmd += ` click --selector "${params.selector}"`;
+        break;
+      case 'eval':
+        cmd += ` eval "${params.code.replace(/"/g, '\\"')}"`;
+        break;
+      case 'wait':
+        if (params.selector) {
+          cmd += ` wait --selector "${params.selector}"`;
+        } else if (params.time) {
+          cmd += ` wait --time ${params.time}`;
+        } else {
+          cmd += ` wait --load networkidle`;
         }
-      });
-      return attachments;
-    })()
-  `;
-  return await browser.evalWithFile(code, `attachments_${Date.now()}`);
+        break;
+    }
+
+    return execSync(cmd, { encoding: 'utf8', timeout: 30000 });
+  }
+};
+
+// 填写会议室预约表单
+async function bookMeetingRoom(data) {
+  // 选择日期
+  await OATools.browser('eval', {
+    code: `document.querySelector("#fdDate").value = "${data.date}"`
+  });
+
+  // 选择时间
+  await OATools.browser('eval', {
+    code: `document.querySelector("#fdStartTime").value = "${data.startTime}"`
+  });
+  await OATools.browser('eval', {
+    code: `document.querySelector("#fdEndTime").value = "${data.endTime}"`
+  });
+
+  // 选择会议室
+  await OATools.browser('eval', {
+    code: `document.querySelector("#fdPlaceId").value = "${data.roomId}"`
+  });
+
+  // 填写主题
+  await OATools.browser('eval', {
+    code: `document.querySelector("#fdTopic").value = "${data.topic}"`
+  });
+
+  // 点击提交
+  await OATools.browser('click', { selector: '#btn-submit' });
+
+  // 等待提交完成
+  await OATools.browser('wait', { selector: '.success-message' });
 }
+
+// 使用示例
+(async () => {
+  await bookMeetingRoom({
+    date: '2026-03-25',
+    startTime: '14:00',
+    endTime: '16:00',
+    roomId: 'xxx',
+    topic: '项目讨论会议'
+  });
+  console.log('预约成功！');
+})();
 ```
 
-## 7. 错误处理
+### 5.3 待办审批脚本
 
-### 7.1 常见错误类型
+```javascript
+// approveTodo.js
+const { execSync } = require('child_process');
+
+const session = 'oa-todo-explore-explore-1234567890-xxxxx';
+
+const OATools = {
+  async browser(action, params = {}) {
+    let cmd = `npx agent-browser --session ${session}`;
+    // ... (同上)
+  }
+};
+
+// 审批待办
+async function approveTodo(fdId, action, comment = '') {
+  // 打开待办详情
+  await OATools.browser('eval', {
+    code: `window.location.href = "https://oa.xgd.com/km/review/km_review_main/kmReviewMain.do?method=view&fdId=${fdId}"`
+  });
+
+  // 等待页面加载
+  await OATools.browser('wait', { time: 2000 });
+
+  // 点击审批按钮
+  const buttonMap = {
+    '同意': '#btn-agree',
+    '驳回': '#btn-reject',
+    '通过': '#btn-pass',
+    '转办': '#btn-transfer'
+  };
+
+  const selector = buttonMap[action];
+  if (!selector) {
+    throw new Error(`未知操作: ${action}`);
+  }
+
+  await OATools.browser('click', { selector });
+
+  // 如果有审批意见，填写意见
+  if (comment) {
+    await OATools.browser('wait', { selector: '#fdOpinion' });
+    await OATools.browser('eval', {
+      code: `document.querySelector("#fdOpinion").value = "${comment}"`
+    });
+  }
+
+  // 确认提交
+  await OATools.browser('click', { selector: '#btn-submit' });
+
+  // 等待提交完成
+  await OATools.browser('wait', { selector: '.success-message' });
+}
+
+// 使用示例
+(async () => {
+  await approveTodo('xxx', '同意', '同意该申请');
+  console.log('审批成功！');
+})();
+```
+
+## 6. 调试技巧
+
+### 6.1 使用 snapshot 分析页面
+
+```bash
+# 获取页面快照
+npx agent-browser --session <session> snapshot
+
+# 保存快照到文件
+npx agent-browser --session <session> snapshot > /tmp/page_snapshot.txt
+```
+
+### 6.2 使用 eval 测试代码
+
+```bash
+# 测试元素查找
+npx agent-browser --session <session> eval "document.querySelector('#submit-btn') !== null"
+
+# 获取元素属性
+npx agent-browser --session <session> eval "JSON.stringify({id: document.querySelector('#someElement').id, className: document.querySelector('#someElement').className})"
+
+# 列出所有表单字段
+npx agent-browser --session <session> eval "Array.from(document.querySelectorAll('input, select, textarea')).map(e => ({tag: e.tagName, type: e.type, id: e.id, name: e.name}))"
+```
+
+### 6.3 使用 screenshot 可视化
+
+```bash
+# 截图保存
+npx agent-browser --session <session> screenshot /tmp/debug.png
+
+# 在 macOS 中打开查看
+open /tmp/debug.png
+```
+
+## 7. 会话管理
+
+### 7.1 关闭会话
+
+```bash
+oa-todo explore --close <sessionId>
+```
+
+### 7.2 会话续期
+
+同一 URL 重复调用会自动续期：
+
+```bash
+# 第一次调用：创建会话
+oa-todo explore "https://oa.xgd.com/km/imeeting/index.jsp" --pause
+
+# 第二次调用：自动续期（延长超时时间）
+oa-todo explore "https://oa.xgd.com/km/imeeting/index.jsp" --pause
+```
+
+### 7.3 超时设置
+
+```bash
+# 设置超时时间为 20 分钟
+oa-todo explore "<URL>" --pause --timeout 20
+```
+
+## 8. 常见场景
+
+### 8.1 会议室查询 - 内置命令
+
+`oa-todo rooms` 是内置的会议室查询命令，无需开发即可直接使用：
+
+```bash
+# 查询今天
+oa-todo rooms
+
+# 查询指定日期 (YYYY-MM-DD 格式)
+oa-todo rooms 2026-03-25
+
+# 查询指定日期 (YYYYMMDD 简写格式)
+oa-todo rooms 20260325
+```
+
+**输出信息**：
+- 会议室列表（按楼层分组）
+- 占用情况统计
+- 可用会议室列表
+- 每个会议室的可用时间段
+- JSON数据导出（保存到 /tmp/meeting_rooms_YYYYMMDD.json）
+
+**技术说明**：
+- 自动处理登录状态
+- 与 sync 命令独立，使用独立的登录会话
+- 内部使用 HTTP API 获取数据，高效可靠
+
+### 8.2 自定义会议室查询脚本
+
+如果需要自定义数据处理逻辑，可以使用 `explore --pause` 开发自己的脚本：
+
+```javascript
+// 1. 创建会话
+// oa-todo explore "https://oa.xgd.com/km/imeeting/index.jsp" --pause
+
+// 2. 使用 HTTP API 获取数据
+const response = await OATools.http(
+  'https://oa.xgd.com/km/imeeting/km_imeeting_calendar/kmImeetingCalendar.do?method=rescalendar&t=' + Date.now() + '&pageno=1&selectedCategories=all&fdStart=2026-03-24+00%3A00&fdEnd=2026-03-24+00%3A00&s_seq=' + Math.random() + '&s_ajax=true',
+  { referer: 'https://oa.xgd.com/km/imeeting/km_imeeting_calendar/index_content_place.jsp' }
+);
+
+// 3. 解析数据
+const rooms = Object.values(response.data.main || {});
+rooms.forEach(room => {
+  console.log(`${room.name} - ${room.floor} - ${room.seats}人`);
+  const bookingsToday = (room.list || []).filter(b => b.start.includes('2026-03-24'));
+  console.log(`  今日预约: ${bookingsToday.length}场`);
+});
+```
+
+**注意**：单天查询时 OA API 不会返回预约数据，需要扩展日期范围（前后各一天）并在结果中筛选。
+
+### 8.3 请假申请
+
+```javascript
+// 1. 创建会话
+// oa-todo explore "https://oa.xgd.com/km/ehr/km_ehr_leave/kmEhrLeave.do?method=add" --pause
+
+// 2. 填写表单
+await OATools.browser(session, 'eval', {
+  code: 'document.querySelector("#fdLeaveType").value = "年假"'
+});
+await OATools.browser(session, 'eval', {
+  code: 'document.querySelector("#fdStartTime").value = "2026-03-25 09:00"'
+});
+await OATools.browser(session, 'eval', {
+  code: 'document.querySelector("#fdEndTime").value = "2026-03-25 18:00"'
+});
+await OATools.browser(session, 'eval', {
+  code: 'document.querySelector("#fdReason").value = "个人事务"'
+});
+
+// 3. 提交
+await OATools.browser(session, 'click', { selector: '#btn-submit' });
+```
+
+### 8.4 费用报销
+
+```javascript
+// 1. 创建会话
+// oa-todo explore "https://oa.xgd.com/km/expense/km_expense_main/kmExpenseMain.do?method=add" --pause
+
+// 2. 填写表单
+await OATools.browser(session, 'eval', {
+  code: 'document.querySelector("#fdAmount").value = "1000.00"'
+});
+await OATools.browser(session, 'eval', {
+  code: 'document.querySelector("#fdType").value = "交通费"'
+});
+await OATools.browser(session, 'eval', {
+  code: 'document.querySelector("#fdReason").value = "客户出差交通费用"'
+});
+
+// 3. 上传附件
+await OATools.browser(session, 'eval', {
+  code: 'document.querySelector("#fileUpload").click()'
+});
+// (需要额外的文件上传处理逻辑)
+
+// 4. 提交
+await OATools.browser(session, 'click', { selector: '#btn-submit' });
+```
+
+## 9. 错误处理
+
+### 9.1 常见错误
 
 | 错误类型 | 描述 | 处理方式 |
 |---------|------|----------|
-| INIT_ERROR | WebExtractor 初始化失败 | 保存快照，输出 [ERROR] 日志 |
-| FORMAT_ERROR | getAllTables 返回格式错误 | 保存快照，输出 [ERROR] 日志 |
 | LOGIN_EXPIRED | 登录状态过期 | 重新登录 |
-| ACCESS_DENIED | 无权访问该待办 | 标记为 skip 状态 |
+| ELEMENT_NOT_FOUND | 元素未找到 | 检查选择器，使用 snapshot 分析页面 |
+| TIMEOUT | 操作超时 | 增加等待时间或检查网络 |
+| ACCESS_DENIED | 无权访问 | 检查权限或联系管理员 |
 
-### 7.2 错误输出格式
-
-当获取待办详情失败时，控制台输出格式：
-
-```
-[ERROR] 初始化 WebExtractor 失败: WebExtractor not available
-  详情: fdId=abc123, type=meeting, title=邀请您参加会议...
-```
-
-### 7.3 特殊错误处理
-
-#### 登录过期检测
+### 9.2 错误处理示例
 
 ```javascript
-const snapshot = await browser.snapshot();
-if (snapshot.includes('登录') && snapshot.includes('密码')) {
-  console.error('[ERROR] 登录已过期，需要重新登录');
-  throw new Error('LOGIN_EXPIRED');
+async function safeExecute(fn, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (i === retries - 1) throw e;
+      console.log(`重试 ${i + 1}/${retries}...`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
 }
-```
 
-#### 无权访问处理
-
-```javascript
-if (snapshot.includes('访问被拒绝') || snapshot.includes('无权访问')) {
-  console.error('[ERROR] 无权访问该待办:', todo.title);
-  await db.updateStatus(todo.fd_id, 'skip', 'sync', '无权访问');
-  return;
-}
-```
-
-## 8. 调试流程
-
-### 8.1 使用断点分析页面
-
-```javascript
-// 在 fetchTodoDetail 中添加断点
-await browser.initExtractor();
-
-const tables = await browser.getAllTables();
-const pageOverview = await browser.getPageOverview();
-
-breakpoint(browser, `${todo.todo_type}类型分析`, {
-  fdId: todo.fd_id,
-  todoType: todo.todo_type,
-  title: todo.title,
-  tables: tables,
-  pageOverview: pageOverview
+// 使用示例
+await safeExecute(async () => {
+  await OATools.browser(session, 'click', { selector: '#submit-btn' });
 });
-```
-
-### 8.2 手动调试命令
-
-断点暂停后使用以下命令分析页面：
-
-```bash
-# 查看所有表格
-npx agent-browser --session <session> eval 'WebExtractor.DebugHelper.getAllTables()'
-
-# 查看页面概览
-npx agent-browser --session <session> eval 'WebExtractor.DebugHelper.getPageOverview()'
-
-# 测试表格提取
-npx agent-browser --session <session> eval 'WebExtractor.TableExtractor.extractTable("table:nth-of-type(3)", {format:"markdown"})'
-```
-
-## 9. 测试验证
-
-```bash
-# 1. 重新登录
-node bin/oa-todo.js sync --login
-
-# 2. 测试不同类型
-node bin/oa-todo.js sync --force <meeting_fdId>
-node bin/oa-todo.js sync --force <workflow_fdId>
-node bin/oa-todo.js sync --force <ehr_fdId>
-
-# 3. 检查提取的数据
-cat /tmp/oa_todos/details/<fdId>/data.json
 ```
 
 ## 10. 参考资料
 
-- [agent-browser 文档](https://github.com/example/agent-browser)
-- [Playwright 文档](https://playwright.dev/)
-- [项目 CLAUDE.md](../../CLAUDE.md)
 - [oa-todo README](../README.md)
+- [项目 CLAUDE.md](../../CLAUDE.md)
+- [explore 命令文档](../src/agents/explore-agent.md)

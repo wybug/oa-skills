@@ -208,41 +208,49 @@ class EhrDetailHandler extends BaseDetailHandler {
   async isApprovable() {
     const snapshot = await this.browser.snapshot();
 
-    // 优先检查：如果只有工作流历史中的"同意。"（带句号），则无可审批按钮
-    // 工作流历史显示为 StaticText "同意。" 或 "提交。"（带句号）
-    // 实际按钮显示为 button "同意" 或 button "不同意"
-    const hasWorkflowHistoryOnly = snapshot.includes('同意。') || snapshot.includes('提交。');
-    const hasActualButton = /button\s+"(同意|不同意)"/.test(snapshot);
-
-    // 如果有工作流历史但没有实际按钮，说明流程已处理完成
-    if (hasWorkflowHistoryOnly && !hasActualButton) {
-      return { approvable: false, reason: '流程已审批完成' };
-    }
-
-    // 检查是否已审批完成 - 查找状态相关的模式
-    // EHR 系统可能有不同的状态显示格式
+    // 步骤1: 优先检查状态字段是否显示"通过/已同意/已审批"
     const statusPatterns = [
-      /审批状态[\s\S]*?StaticText "(通过|已同意|已审批)"/,  // "审批状态" + 通过
-      /状态[：:]\s*通过/,           // "状态: 通过"
-      /状态[：:]\s*已同意/,         // "状态: 已同意"
-      /状态[：:]\s*已审批/,         // "状态: 已审批"
-      /StaticText "状态"[\s\S]{0,500}?StaticText "(通过|已同意|已审批)"/,  // 快照格式（放宽距离限制）
-      // 简单文本匹配（作为后备）
+      /审批状态[\s\S]*?StaticText "(通过|已同意|已审批)"/,
+      /状态[：:]\s*通过/,
+      /状态[：:]\s*已同意/,
+      /状态[：:]\s*已审批/,
+      /StaticText "状态"[\s\S]{0,500}?StaticText "(通过|已同意|已审批)"/,
       /审批状态.*通过/,
       /状态.*通过/,
     ];
 
-    for (const pattern of statusPatterns) {
-      if (pattern.test(snapshot)) {
-        return { approvable: false, reason: '流程已审批完成' };
-      }
+    const isStatusCompleted = statusPatterns.some(pattern => pattern.test(snapshot));
+
+    // 如果状态显示已完成，则不可审批
+    if (isStatusCompleted) {
+      return { approvable: false, reason: '流程已审批完成' };
     }
 
-    // 检查是否有审批按钮（实际按钮元素）
-    if (!hasActualButton) {
+    // 步骤2: 检查是否有审批关键词（"同意"/"不同意"）
+    const hasApprovalKeywords = snapshot.includes('同意') || snapshot.includes('不同意');
+
+    if (!hasApprovalKeywords) {
       return { approvable: false, reason: '无可审批按钮' };
     }
 
+    // 步骤3: 检查是否有按钮元素（使用更宽松的匹配适配 agent-browser 快照格式）
+    // agent-browser 快照格式: StaticText "同意", textbox, generic 等
+    // 不带句号的"同意"/"不同意"通常是按钮或可点击元素
+    const hasButtonElements =
+      snapshot.includes('StaticText "同意"') ||
+      snapshot.includes('StaticText "不同意"') ||
+      /同意[^\。]/.test(snapshot) ||  // "同意"后面不是句号
+      /不同意[^\。]/.test(snapshot); // "不同意"后面不是句号
+
+    // 步骤4: 检查操作记录是否带句号（表示历史记录）
+    const hasCompletedAction = snapshot.includes('同意。') || snapshot.includes('不同意。') || snapshot.includes('提交。');
+
+    // 步骤5: 只有当有历史记录，且没有找到任何按钮元素时，才判断为已完成
+    if (hasCompletedAction && !hasButtonElements) {
+      return { approvable: false, reason: '流程已审批完成' };
+    }
+
+    // 步骤6: 默认可审批
     return { approvable: true };
   }
 }

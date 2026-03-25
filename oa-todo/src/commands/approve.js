@@ -5,10 +5,103 @@
 const chalk = require('chalk');
 const ora = require('ora');
 const inquirer = require('inquirer');
+const path = require('path');
 const Database = require('../lib/database');
 const Browser = require('../lib/browser');
+const PauseManager = require('../lib/pause-manager');
 const { validateAction, getValidActions } = require('../lib/detector');
 const { ACTION_TO_STATUS, STATUS_NAMES, TYPE_NAMES } = require('../config');
+
+// 导入审批助手类
+const { EHRApprovalHelperV2 } = require('../../scripts/ehrApprovalV2');
+const { MeetingApprovalHelper } = require('../../scripts/meetingApproval');
+const { ExpenseApprovalHelper } = require('../../scripts/expenseApproval');
+const { WorkflowApprovalHelper } = require('../../scripts/workflowApproval');
+
+/**
+ * EHR 审批函数
+ */
+async function approveEhr(fdId, action, comment, options = {}) {
+  const { db, browser, debugMode = false } = options;
+
+  const helper = new EHRApprovalHelperV2(browser.session, {
+    debug: debugMode
+  });
+
+  const result = await helper.approve(action, comment, {
+    submit: true,
+    debug: debugMode
+  });
+
+  // 更新数据库
+  const newStatus = ACTION_TO_STATUS[action];
+  await db.updateStatus(fdId, newStatus, action, comment);
+
+  return result;
+}
+
+/**
+ * 会议审批函数
+ */
+async function approveMeeting(fdId, action, comment, options = {}) {
+  const { db, browser, debugMode = false } = options;
+
+  const helper = new MeetingApprovalHelper(browser.session, {
+    debug: debugMode
+  });
+
+  const result = await helper.approve(action, comment, {
+    submit: true,
+    debug: debugMode
+  });
+
+  const newStatus = ACTION_TO_STATUS[action];
+  await db.updateStatus(fdId, newStatus, action, comment);
+
+  return result;
+}
+
+/**
+ * 费用报销审批函数
+ */
+async function approveExpense(fdId, action, comment, options = {}) {
+  const { db, browser, debugMode = false } = options;
+
+  const helper = new ExpenseApprovalHelper(browser.session, {
+    debug: debugMode
+  });
+
+  const result = await helper.approve(action, comment, {
+    submit: true,
+    debug: debugMode
+  });
+
+  const newStatus = ACTION_TO_STATUS[action];
+  await db.updateStatus(fdId, newStatus, action, comment);
+
+  return result;
+}
+
+/**
+ * 通用流程审批函数
+ */
+async function approveWorkflow(fdId, action, comment, options = {}) {
+  const { db, browser, debugMode = false } = options;
+
+  const helper = new WorkflowApprovalHelper(browser.session, {
+    debug: debugMode
+  });
+
+  const result = await helper.approve(action, comment, {
+    submit: true,
+    debug: debugMode
+  });
+
+  const newStatus = ACTION_TO_STATUS[action];
+  await db.updateStatus(fdId, newStatus, action, comment);
+
+  return result;
+}
 
 async function approve(fdId, action, options) {
   const spinner = ora('正在处理审批...').start();
@@ -17,6 +110,7 @@ async function approve(fdId, action, options) {
   let db = null;
   let browser = null;
   let todo = null;
+  let pauseManager = null;  // 声明在外部，后续在两个地方使用
   const isDebugMode = options.debug || false;
 
   try {
@@ -26,16 +120,93 @@ async function approve(fdId, action, options) {
 
     // 获取待办信息
     todo = await db.getTodo(fdId);
-    
+
     if (!todo) {
       spinner.fail(`未找到待办: ${fdId}`);
       console.log(chalk.yellow('\n请先同步待办: oa-todo sync'));
       await db.close();
       process.exit(1);
     }
-    
+
     spinner.succeed('找到待办');
-    
+
+    // ========== 智能断点模式 (--pause) ==========
+    pauseManager = new PauseManager(options.config);
+
+    // 如果是 --pause 模式
+    if (options.pause) {
+      const timeout = options.timeout || 10;
+
+      // 检查是否已存在断点
+      const existing = await pauseManager.get(fdId);
+      if (existing) {
+        await pauseManager.update(fdId); // 续期
+        // 输出简洁的状态（JSON 格式）
+        console.log(JSON.stringify({
+          status: 'checkpoint_renewed',
+          session: existing.session,
+          fdId: fdId,
+          timeout: timeout * 60
+        }, null, 2));
+        await db.close();
+        return;
+      }
+
+      // 创建浏览器并打开详情页
+      spinner.start('创建浏览器会话...');
+      const browser = new Browser(options.config, {
+        debugMode: options.debug,
+        session: `oa-todo-pause-${fdId}-${Date.now()}`,
+        reuse: true  // 不关闭现有 daemon
+      });
+
+      // 检查登录状态
+      let loginStatus = await browser.checkLoginValid();
+      if (!loginStatus.valid) {
+        spinner.start('需要登录...');
+
+        if (!process.env.OA_USER_NAME || !process.env.OA_USER_PASSWD) {
+          spinner.fail('缺少环境变量 OA_USER_NAME 或 OA_USER_PASSWD');
+          console.log(chalk.yellow('\n请在 CoPaw 的 Environments 中配置:'));
+          console.log('  OA_USER_NAME=你的用户名');
+          console.log('  OA_USER_PASSWD=你的密码');
+          await browser.close();
+          await db.close();
+          process.exit(1);
+        }
+
+        await browser.login();
+      }
+
+      // 加载登录状态
+      spinner.start('加载登录状态...');
+      await browser.loadState();
+      spinner.succeed('登录状态已加载');
+
+      // 打开待办详情页
+      spinner.start('打开待办详情...');
+      await browser.fetchTodoDetail(fdId, todo.href);
+      spinner.succeed('已打开待办详情');
+
+      // 保存断点信息（不关闭浏览器）
+      await pauseManager.create(fdId, todo, browser.session, timeout);
+
+      // 输出简洁的状态（JSON 格式，适合智能体解析）
+      // 注意：不输出 url，避免智能体尝试直接访问页面
+      console.log(JSON.stringify({
+        status: 'checkpoint_created',
+        session: browser.session,
+        fdId: fdId,
+        title: todo.title,
+        type: todo.todo_type,
+        timeout: timeout * 60
+      }, null, 2));
+
+      await db.close();
+      return;
+    }
+    // ========== 智能断点模式结束 ==========
+
     // 显示待办详细信息
     console.log(chalk.bold('\n📋 待办详细信息:'));
     console.log(chalk.cyan('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
@@ -101,8 +272,25 @@ async function approve(fdId, action, options) {
     
     spinner.start('检查登录状态...');
 
-    // 检查登录（根据debug模式设置）
-    browser = new Browser(options.config, { debugMode: options.debug });
+    // ========== 检查是否有活跃断点 ==========
+    const existingPause = await pauseManager.get(fdId);
+    let pauseSession = null;
+
+    if (existingPause) {
+      // 复用现有 session
+      browser = new Browser(options.config, {
+        debugMode: options.debug,
+        session: existingPause.session,
+        reuse: true  // 标记为复用模式，不关闭现有 daemon
+      });
+      pauseSession = existingPause.session;
+      await pauseManager.update(fdId); // 续期
+      spinner.info(`♻️  复用断点会话: ${existingPause.session}`);
+    } else {
+      // 正常流程：创建新浏览器
+      browser = new Browser(options.config, { debugMode: options.debug });
+    }
+
     let loginStatus = await browser.checkLoginValid();
     
     if (options.login || !loginStatus.valid) {
@@ -143,45 +331,6 @@ async function approve(fdId, action, options) {
     await browser.fetchTodoDetail(fdId, todo.href);
     spinner.succeed('已打开待办详情');
 
-    // 调试模式：暂停并等待用户确认
-    if (isDebugMode) {
-      spinner.stop();
-
-      console.log(chalk.bold.cyan('\n🐛 调试模式已启动'));
-      console.log(chalk.gray('────────────────────────────────────────────────────────────'));
-      console.log(chalk.yellow('浏览器窗口已打开，请手动检查页面状态'));
-      console.log(chalk.gray('\n页面信息:'));
-      console.log(`  FD ID: ${todo.fd_id}`);
-      console.log(`  标题: ${todo.title.substring(0, 50)}...`);
-      console.log(`  类型: ${TYPE_NAMES[todo.todo_type] || '未知'}`);
-      console.log(`  待执行操作: ${chalk.green(action)}`);
-      console.log(chalk.gray('\n操作选项:'));
-      console.log(`  1. 在浏览器中手动完成审批操作`);
-      console.log(`  2. 检查页面元素是否正确`);
-      console.log(`  3. 按 ${chalk.cyan('Enter')} 键继续（将关闭浏览器）`);
-      console.log(chalk.gray('────────────────────────────────────────────────────────────'));
-
-      // 等待用户按回车继续
-      await new Promise(resolve => {
-        const readline = require('readline');
-        const rl = readline.createInterface({
-          input: process.stdin,
-          output: process.stdout
-        });
-        rl.question('', () => {
-          rl.close();
-          resolve();
-        });
-      });
-
-      await browser.close();
-      await db.close();
-
-      console.log(chalk.green('\n✅ 已关闭浏览器'));
-      console.log(chalk.gray('提示: 如需更新数据库状态，请使用: oa-todo update ' + fdId + ' approved'));
-      process.exit(0);
-    }
-
     // 执行审批
     spinner.start(`正在执行「${action}」操作...`);
 
@@ -189,13 +338,29 @@ async function approve(fdId, action, options) {
 
     try {
       if (todo.todo_type === 'meeting') {
-        await browser.approveMeeting(action);
+        await approveMeeting(fdId, action, options.comment, {
+          db: db,
+          browser: browser,
+          debugMode: isDebugMode
+        });
       } else if (todo.todo_type === 'ehr') {
-        await browser.approveEhr(action, options.comment);
+        await approveEhr(fdId, action, options.comment, {
+          db: db,
+          browser: browser,
+          debugMode: isDebugMode
+        });
       } else if (todo.todo_type === 'expense') {
-        await browser.approveExpense(action, options.comment);
+        await approveExpense(fdId, action, options.comment, {
+          db: db,
+          browser: browser,
+          debugMode: isDebugMode
+        });
       } else if (todo.todo_type === 'workflow') {
-        await browser.approveWorkflow(action, options.comment);
+        await approveWorkflow(fdId, action, options.comment, {
+          db: db,
+          browser: browser,
+          debugMode: isDebugMode
+        });
       } else {
         spinner.fail(`不支持的待办类型: ${todo.todo_type}`);
         await browser.close();
@@ -224,9 +389,12 @@ async function approve(fdId, action, options) {
       // 其他错误继续抛出
       throw error;
     }
-    
-    // 更新数据库状态
-    await db.updateStatus(fdId, newStatus, action, options.comment);
+
+    // 关闭断点（如果复用了断点会话）
+    if (pauseSession) {
+      await pauseManager.close(fdId);
+      spinner.info('✓ 断点会话已关闭');
+    }
 
     // 保存截图作为凭证（仅在 debug 模式）
     let screenshotPath = null;

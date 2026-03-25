@@ -17,8 +17,8 @@ async function show(fdId, options) {
     const db = new Database(options.config.dbPath);
     await db.init();
 
-    // 获取待办信息（支持部分ID查询）
-    const todo = await db.getTodoByPrefix(fdId);
+    // 获取待办信息（仅支持精确ID匹配）
+    const todo = await db.getTodoByExactId(fdId);
 
     if (!todo) {
       console.log(chalk.red(`未找到待办: ${fdId}`));

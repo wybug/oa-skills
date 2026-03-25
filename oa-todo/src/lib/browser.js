@@ -13,7 +13,8 @@ class Browser {
     this.debugMode = options.debugMode || false;
     // headedMode 由环境变量控制（由 daemon 命令设置）
     this.headedMode = this._getDefaultHeadedMode();
-    this.session = `oa-todo-${Date.now()}`;
+    this.session = options.session || `oa-todo-${Date.now()}`;
+    this.reuseMode = options.reuse || false;  // 复用模式标志
     this.debugInfo = {
       commands: [],
       errors: [],
@@ -23,11 +24,13 @@ class Browser {
     // 反检测参数始终启用
     process.env.AGENT_BROWSER_ARGS = '--disable-blink-features=AutomationControlled';
 
-    // 关闭现有 daemon
-    try {
-      execSync('npx agent-browser close', { timeout: 5000, stdio: 'ignore' });
-    } catch (e) {
-      // 忽略
+    // 复用模式下不关闭现有 daemon
+    if (!this.reuseMode) {
+      try {
+        execSync('npx agent-browser close', { timeout: 5000, stdio: 'ignore' });
+      } catch (e) {
+        // 忽略
+      }
     }
 
     // 根据 headedMode 构建命令（与 debugMode 解耦）
@@ -37,9 +40,20 @@ class Browser {
 
   // 从环境变量获取浏览器模式（由 daemon 命令设置）
   _getDefaultHeadedMode() {
+    // 优先检查环境变量
     const envValue = process.env.OA_BROWSER_HEADED;
     if (envValue !== undefined) {
       return envValue === '1' || envValue === 'true' || envValue === 'yes';
+    }
+    // 如果环境变量未设置，检查 daemon 配置文件
+    const daemonConfigFile = '/tmp/oa-todo-daemon.json';
+    try {
+      if (fs.existsSync(daemonConfigFile)) {
+        const config = JSON.parse(fs.readFileSync(daemonConfigFile, 'utf8'));
+        return config.headed || false;
+      }
+    } catch (e) {
+      // 忽略错误，使用默认值
     }
     return false; // 默认：无头模式
   }
@@ -132,6 +146,22 @@ class Browser {
 
   async snapshot() {
     return await this.exec(`--session ${this.session} snapshot`);
+  }
+
+  /**
+   * 获取当前页面 URL
+   */
+  async getCurrentUrl() {
+    try {
+      const result = await this.exec(`--session ${this.session} eval 'window.location.href'`);
+      // 解析输出，移除可能的引号和换行
+      return result.trim().replace(/^['"]|['"]$/g, '');
+    } catch (e) {
+      if (this.debugMode) {
+        console.error(`[getCurrentUrl] 错误: ${e.message}`);
+      }
+      throw new Error('无法获取当前URL');
+    }
   }
 
   /**
@@ -1079,391 +1109,6 @@ class Browser {
            result.includes('success: true');
   }
 
-  async approveMeeting(action) {
-    // 等待页面完全渲染（移动网络可能需要更长时间）
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    // 参考 approve_oa_todo_by_fdId.sh 的会议审批实现
-    const selectActionJs = `(() => {
-      const action = "${action}";
-      const allInputs = document.querySelectorAll('input[type="radio"], input[type="checkbox"]');
-      const targetInput = Array.from(allInputs).find(input => {
-        const label = input.closest('label') || document.querySelector('label[for="' + input.id + '"]');
-        const labelText = label ? label.textContent.trim() : '';
-        const value = input.value || '';
-        return (action === '参加' && (labelText.includes('参加') || value.includes('参加'))) ||
-               (action === '不参加' && (labelText.includes('不参加') || value.includes('不参加')));
-      });
-      if (targetInput) {
-        targetInput.click();
-        return { success: true, action: action };
-      }
-      return { success: false };
-    })()`;
-
-    const selectFile = `/tmp/approve_meeting_select_${Date.now()}.js`;
-    fs.writeFileSync(selectFile, selectActionJs, 'utf-8');
-    const selectResult = await this.exec(`--session ${this.session} eval --stdin < "${selectFile}"`, { timeout: 30000 });
-    fs.unlinkSync(selectFile);
-
-    const successMarker = JSON.stringify({ success: true });
-    if (!this._checkSuccess(selectResult)) {
-      throw new Error(`未找到会议选项: ${action}`);
-    }
-
-    // 点击提交按钮
-    const submitJs = `(() => {
-      let submitBtn = document.querySelector('.lui_toolbar_btn_l');
-      if (!submitBtn) {
-        const allElements = document.querySelectorAll('div, button, input[type="submit"], input[type="button"], a');
-        submitBtn = Array.from(allElements).find(el => {
-          const text = el.textContent.trim();
-          const value = el.value || '';
-          return (text === '提交' || text === '确定' || text === '保存' ||
-                  value === '提交' || value === '确定' || value === '保存') &&
-                 el.offsetParent !== null;
-        });
-      }
-      if (submitBtn) {
-        submitBtn.click();
-        return { success: true };
-      }
-      return { success: false };
-    })()`;
-
-    const submitFile = `/tmp/approve_meeting_submit_${Date.now()}.js`;
-    fs.writeFileSync(submitFile, submitJs, 'utf-8');
-    const submitResult = await this.exec(`--session ${this.session} eval --stdin < "${submitFile}"`, { timeout: 30000 });
-    fs.unlinkSync(submitFile);
-
-    if (!this._checkSuccess(submitResult)) {
-      throw new Error('未找到提交按钮');
-    }
-
-    await this.waitForLoad();
-    return this.snapshot();
-  }
-
-  async approveEhr(action, comment = '') {
-    // 等待页面完全渲染（移动网络可能需要更长时间）
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    // EHR 使用"同意"/"不同意"按钮
-    const selectActionJs = `
-      (() => {
-        const action = "${action}";
-        const allButtons = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
-        const targetBtn = allButtons.find(btn => btn.textContent.trim() === action);
-
-        if (targetBtn) {
-          if (targetBtn.disabled || targetBtn.classList.contains('disabled')) {
-            return { success: false, error: '按钮已禁用' };
-          }
-          targetBtn.click();
-          return { success: true, action: action };
-        }
-
-        return { success: false, availableButtons: allButtons.map(b => b.textContent.trim()) };
-      })()
-    `;
-
-    const selectFile = `/tmp/approve_ehr_select_${Date.now()}.js`;
-    fs.writeFileSync(selectFile, selectActionJs, 'utf-8');
-    const selectResult = await this.exec(`--session ${this.session} eval --stdin < "${selectFile}"`, { timeout: 30000 });
-    fs.unlinkSync(selectFile);
-
-    if (!this._checkSuccess(selectResult)) {
-      throw new Error(`未找到审批选项: ${action}`);
-    }
-
-    // 点击提交按钮
-    const submitJs = `
-      (() => {
-        let submitBtn = document.querySelector('.lui_toolbar_btn_l');
-        if (!submitBtn) {
-          const allElements = document.querySelectorAll('div, button, input[type="submit"], input[type="button"], a');
-          submitBtn = Array.from(allElements).find(el => {
-            const text = el.textContent.trim();
-            const value = el.value || '';
-            return (text === '提交' || text === '确定' || text === '保存' ||
-                    value === '提交' || value === '确定' || value === '保存') &&
-                   el.offsetParent !== null;
-          });
-        }
-        if (submitBtn) {
-          submitBtn.click();
-          return { success: true };
-        }
-        return { success: false };
-      })()
-    `;
-
-    const submitFile = `/tmp/approve_ehr_submit_${Date.now()}.js`;
-    fs.writeFileSync(submitFile, submitJs, 'utf-8');
-    const submitResult = await this.exec(`--session ${this.session} eval --stdin < "${submitFile}"`, { timeout: 30000 });
-    fs.unlinkSync(submitFile);
-
-    if (!this._checkSuccess(submitResult)) {
-      throw new Error('未找到提交按钮');
-    }
-
-    await this.waitForLoad();
-    return this.snapshot();
-  }
-
-  async approveExpense(action, comment = '') {
-    // 等待页面完全渲染（移动网络可能需要更长时间）
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    // 步骤1: 点击审批按钮
-    const clickScript = `
-      (() => {
-        const action = "${action}";
-        const buttons = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
-        const targetBtn = buttons.find(btn => btn.textContent.trim() === action);
-
-        if (targetBtn) {
-          if (targetBtn.disabled || targetBtn.classList.contains('disabled')) {
-            return { success: false, error: '按钮已禁用，可能已处理' };
-          }
-          targetBtn.click();
-          return { success: true, action: action };
-        }
-
-        return { success: false, error: '未找到' + action + '按钮' };
-      })()
-    `;
-
-    const clickFile = `/tmp/approve_expense_click_${Date.now()}.js`;
-    fs.writeFileSync(clickFile, clickScript, 'utf-8');
-    const clickResult = await this.exec(`--session ${this.session} eval --stdin < "${clickFile}"`, { timeout: 30000 });
-    fs.unlinkSync(clickFile);
-
-    const successMarker = JSON.stringify({ success: true });
-    if (!this._checkSuccess(clickResult)) {
-      throw new Error(`未找到审批按钮: ${action}`);
-    }
-
-    // 步骤2: 如果是驳回，填写意见
-    if (action === '驳回' && comment) {
-      const commentScript = `
-        (() => {
-          const commentBox = document.querySelector('textarea[placeholder*="意见"], input[placeholder*="意见"]');
-          if (commentBox) {
-            commentBox.value = '${comment}';
-            commentBox.dispatchEvent(new Event('input', { bubbles: true }));
-            return { success: true };
-          }
-          return { success: false };
-        })()
-      `;
-      const commentFile = `/tmp/approve_expense_comment_${Date.now()}.js`;
-      fs.writeFileSync(commentFile, commentScript, 'utf-8');
-      await this.exec(`--session ${this.session} eval --stdin < "${commentFile}"`, { timeout: 30000 });
-      fs.unlinkSync(commentFile);
-    }
-
-    // 步骤3: 处理确认弹窗
-    const confirmScript = `
-      (() => {
-        const confirmBtn = Array.from(document.querySelectorAll('button')).find(btn =>
-          btn.textContent.includes('确定') || btn.textContent.includes('确认')
-        );
-        if (confirmBtn) {
-          confirmBtn.click();
-          return { success: true };
-        }
-        return { success: false };
-      })()
-    `;
-
-    const confirmFile = `/tmp/approve_expense_confirm_${Date.now()}.js`;
-    fs.writeFileSync(confirmFile, confirmScript, 'utf-8');
-    await this.exec(`--session ${this.session} eval --stdin < "${confirmFile}"`, { timeout: 30000 });
-    fs.unlinkSync(confirmFile);
-
-    await this.waitForLoad();
-    return this.snapshot();
-  }
-
-  async approveWorkflow(action, comment = '') {
-    // 参考 approve_oa_todo_by_fdId.sh 的实现
-    // 使用文件方式传递 JavaScript（避免中文字符问题）
-    const successMarker = JSON.stringify({ success: true });
-
-    // 等待页面完全渲染（移动网络可能需要更长时间）
-    await new Promise(resolve => setTimeout(resolve, 3000));
-
-    // 1. 点击审批动作的单选按钮
-    // 注意：OA系统使用 value="handler_pass:通过", "handler_superRefuse:驳回" 等格式
-    // 增加重试机制以适应网络延迟
-    const clickRadioJs = `(() => {
-      const action = "${action}";
-
-      // 重试函数：等待元素出现并执行操作
-      const tryClickRadio = (retries) => {
-        const radioButtons = document.querySelectorAll('input[type="radio"]');
-        const targetRadio = Array.from(radioButtons).find(radio => {
-          const label = radio.closest('label') || document.querySelector('label[for="' + radio.id + '"]');
-          const labelText = label ? label.textContent.trim() : '';
-          const value = radio.value || '';
-          // 匹配多种格式: "通过", "handler_pass:通过", "驳回", "handler_superRefuse:驳回"
-          return labelText === action || value === action ||
-                 labelText.includes(action) || value.includes(action) ||
-                 value.includes('handler_' + action.toLowerCase()) ||
-                 value.includes(action);
-        });
-
-        if (targetRadio) {
-          targetRadio.click();
-          return { success: true, action: action, value: targetRadio.value };
-        }
-
-        // 如果没找到且还有重试次数，继续重试
-        if (retries > 0) {
-          return { success: false, retry: true, remaining: retries };
-        }
-
-        return { success: false, availableRadios: radioButtons.length };
-      };
-
-      // 首次尝试
-      let result = tryClickRadio(0);
-
-      // 如果失败且允许重试，使用Promise重试
-      if (!result.success && result.retry) {
-        return new Promise(resolve => {
-          let retries = 5; // 最多重试5次
-          const interval = setInterval(() => {
-            result = tryClickRadio(retries - 1);
-            if (result.success || !result.retry || retries <= 0) {
-              clearInterval(interval);
-              resolve(result);
-            }
-            retries--;
-          }, 500); // 每500ms重试一次
-        });
-      }
-
-      return result;
-    })()`;
-
-    const radioFile = `/tmp/approve_radio_${Date.now()}.js`;
-    fs.writeFileSync(radioFile, clickRadioJs, 'utf-8');
-    // 增加超时时间以适应移动网络延迟
-    const clickResult = await this.exec(`--session ${this.session} eval --stdin < "${radioFile}"`, { timeout: 30000 });
-    fs.unlinkSync(radioFile);
-
-    // 检查结果
-    if (!this._checkSuccess(clickResult)) {
-      console.error('页面返回:', clickResult);
-      throw new Error(`未找到审批选项: ${action}`);
-    }
-
-    // 2. 如果是驳回操作，需要选择驳回节点
-    if (action === '驳回') {
-      const selectRejectNodeJs = `(() => {
-        // 等待UI更新
-        return new Promise(resolve => {
-          setTimeout(() => {
-            // 查找驳回节点下拉框
-            const rejectSelect = document.querySelector('select[name="jumpToNodeIdSelectObj"]');
-            if (rejectSelect && rejectSelect.offsetParent !== null) {
-              // 默认选择第一个选项（通常是起草节点）
-              if (rejectSelect.options.length > 0) {
-                rejectSelect.selectedIndex = 0;
-                rejectSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                resolve({ success: true, selectedNode: rejectSelect.value, nodeName: rejectSelect.options[0].text });
-              } else {
-                resolve({ success: false, error: 'No options available' });
-              }
-            } else {
-              resolve({ success: false, error: 'Reject select not visible' });
-            }
-          }, 500);
-        });
-      })()`;
-
-      const rejectFile = `/tmp/approve_reject_${Date.now()}.js`;
-      fs.writeFileSync(rejectFile, selectRejectNodeJs, 'utf-8');
-      const rejectResult = await this.exec(`--session ${this.session} eval --stdin < "${rejectFile}"`, { timeout: 10000 });
-      fs.unlinkSync(rejectFile);
-
-      if (!this._checkSuccess(rejectResult)) {
-        throw new Error('无法选择驳回节点');
-      }
-    }
-
-    // 3. 填写处理意见（如果有）
-    if (comment) {
-      const fillCommentJs = `(() => {
-        const comment = "${comment}";
-        const textareas = Array.from(document.querySelectorAll('textarea'));
-        const textInputs = Array.from(document.querySelectorAll('input[type="text"]'));
-        let commentField = null;
-        const allLabels = Array.from(document.querySelectorAll('label, td'));
-        for (let label of allLabels) {
-          const labelText = label.textContent.trim();
-          if (labelText.includes('意见') || labelText.includes('处理意见') || labelText.includes('审批意见')) {
-            const parent = label.parentElement;
-            if (parent) {
-              const textarea = parent.querySelector('textarea');
-              const input = parent.querySelector('input[type="text"]');
-              const nextSibling = parent.nextElementSibling?.querySelector('textarea') ||
-                                parent.nextElementSibling?.querySelector('input[type="text"]');
-              commentField = textarea || input || nextSibling;
-              if (commentField) break;
-            }
-          }
-        }
-        if (!commentField) {
-          commentField = textareas[0] || textInputs[0];
-        }
-        if (commentField) {
-          commentField.value = comment;
-          commentField.dispatchEvent(new Event('input', { bubbles: true }));
-          commentField.dispatchEvent(new Event('change', { bubbles: true }));
-          commentField.blur();
-          return { success: true };
-        }
-        return { success: false };
-      })()`;
-
-      const commentFile = `/tmp/approve_comment_${Date.now()}.js`;
-      fs.writeFileSync(commentFile, fillCommentJs, 'utf-8');
-      await this.exec(`--session ${this.session} eval --stdin < "${commentFile}"`, { timeout: 10000 });
-      fs.unlinkSync(commentFile);
-    }
-
-    // 3. 点击提交按钮
-    const submitJs = `(() => {
-      let submitBtn = null;
-      const allButtons = document.querySelectorAll('button, input[type="button"], input[type="submit"], a');
-      submitBtn = Array.from(allButtons).find(btn => {
-        const text = btn.textContent.trim();
-        const value = btn.value || '';
-        return text === '提交' || value === '提交' ||
-               text === '确定' || value === '确定';
-      });
-      if (submitBtn) {
-        submitBtn.click();
-        return { success: true };
-      }
-      return { success: false };
-    })()`;
-
-    const submitFile = `/tmp/approve_submit_${Date.now()}.js`;
-    fs.writeFileSync(submitFile, submitJs, 'utf-8');
-    const submitResult = await this.exec(`--session ${this.session} eval --stdin < "${submitFile}"`, { timeout: 10000 });
-    fs.unlinkSync(submitFile);
-
-    if (!this._checkSuccess(submitResult)) {
-      throw new Error('未找到提交按钮');
-    }
-
-    await this.waitForLoad();
-    return this.snapshot();
-  }
 }
 
 module.exports = Browser;

@@ -365,6 +365,63 @@ nslookup oa.xgd.com
 
 ---
 
+## 常见快速问题 (FAQ)
+
+### 登录状态过期？
+
+重新同步会自动登录：
+```bash
+oa-todo sync
+```
+
+### fdId太长？
+
+从 `oa-todo list` 输出中复制完整的32位fdId：
+```bash
+# 从列表中复制完整ID（例如：19bba01cb5a30a6668fdc15413daa5da）
+oa-todo show 19bba01cb5a30a6668fdc15413daa5da
+```
+
+### 调试登录问题？
+
+使用可视化模式：
+```bash
+AGENT_BROWSER_HEADED=1 oa-todo sync
+```
+
+### 同步超时怎么办？
+
+**推荐方案**：配置定时任务自动同步
+
+1. **凌晨全量同步详情**（避免工作时间超时）：
+   ```bash
+   # 每天凌晨2点全量同步
+   0 2 * * * oa-todo sync --fetch-detail -c 5
+   ```
+
+2. **工作时间增量同步**（每小时同步列表+25条详情）：
+   ```bash
+   # 周一到周五 8:00-19:00 的整点执行
+   0 8-19 * * 1-5 oa-todo sync && oa-todo sync --fetch-detail -c 5 --limit 25
+   ```
+
+3. **手动同步策略**：
+   - 仅同步列表：`oa-todo sync`（快，不会超时）
+   - 限制详情数量：`oa-todo sync --fetch-detail -c 5 --limit 10`
+   - 降低并发数：`oa-todo sync --fetch-detail -c 3`
+
+**完整配置示例**：
+```bash
+# 编辑crontab
+crontab -e
+
+# 添加以下两行
+0 2 * * * oa-todo sync --fetch-detail -c 5 >> /tmp/oa-sync.log 2>&1
+0 8-19 * * 1-5 oa-todo sync && oa-todo sync --fetch-detail -c 5 --limit 25 >> /tmp/oa-sync.log 2>&1
+```
+
+---
+
 ## 获取帮助
 
 ### 收集诊断信息

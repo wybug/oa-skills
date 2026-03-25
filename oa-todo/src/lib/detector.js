@@ -28,8 +28,9 @@ function detectTodoType(title) {
     return TODO_TYPE.EXPENSE;
   }
 
-  // EHR类：标题包含"休假"、"年假"等
-  if (title.includes('休假') || title.includes('年假')) {
+  // EHR类：标题包含"休假"、"年假"、"病假"、"事假"、"调休假"、"假"等
+  if (title.includes('休假') || title.includes('年假') || title.includes('病假') ||
+      title.includes('事假') || title.includes('调休假') || title.includes('假申请')) {
     return TODO_TYPE.EHR;
   }
 

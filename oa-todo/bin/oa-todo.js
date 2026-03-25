@@ -23,7 +23,8 @@ const config = {
   todosDir: process.env.OA_TODOS_DIR || path.join(homedir, '.oa-todo'),
   detailsDir: process.env.OA_DETAILS_DIR || path.join(homedir, '.oa-todo', 'details'),
   stateFile: process.env.OA_STATE_FILE || path.join(homedir, '.oa-todo', 'login_state.json'),
-  loginTimeout: parseInt(process.env.LOGIN_TIMEOUT_MINUTES || '25', 10)
+  loginTimeout: parseInt(process.env.LOGIN_TIMEOUT_MINUTES || '25', 10),
+  pauseTimeout: parseInt(process.env.PAUSE_TIMEOUT_MINUTES || '10', 10)
 };
 
 // 确保目录存在
@@ -150,7 +151,7 @@ program
 
 // approve 命令
 program
-  .command('approve <fdId> <action>')
+  .command('approve <fdId> [action]')
   .description('审批待办')
   .addHelpText('after', `
 
@@ -160,12 +161,21 @@ program
   费用报销 (expense):   同意、驳回
   通用流程 (workflow):  通过、驳回、转办
 
+智能断点模式:
+  --pause              创建断点，保持浏览器打开供智能体使用
+  --timeout <n>        设置断点超时时间（分钟）
+
 示例:
+  oa-todo approve <fdId> --pause              # 创建断点
+  oa-todo approve <fdId> --pause --timeout 15 # 15分钟超时
+  oa-todo approve <fdId> 同意                 # 复用断点执行审批
   oa-todo approve <fdId> 参加
   oa-todo approve <fdId> 同意
   oa-todo approve <fdId> 驳回 --comment "理由"
   `)
   .option('--comment <text>', '审批意见')
+  .option('--pause', '创建智能断点（暂停供智能体分析）', false)
+  .option('--timeout <minutes>', '断点超时时间（分钟），默认10', parseInt)
   .option('--force', '强制执行（不确认）', false)
   .option('--delay <seconds>', '成功后延迟关闭窗口时间（秒）', parseInt, 3)
   .option('--skip-status-check', '跳过本地状态检查', false)
@@ -199,6 +209,111 @@ program
   .action(async (action, options) => {
     const daemon = require('../src/commands/daemon');
     await daemon(action, { ...options, config });
+  });
+
+// rooms 命令
+program
+  .command('rooms [date]')
+  .description('查询会议室信息')
+  .addHelpText('after', `
+
+会议室查询命令，获取会议室占用情况和可用时间段。
+
+常用示例:
+  oa-todo rooms              查询今天的会议室
+  oa-todo rooms 2026-03-25   查询指定日期
+  oa-todo rooms 20260325      查询指定日期 (简写格式)
+
+说明:
+  - 默认查询当天，可直接传入日期 (YYYY-MM-DD 或 YYYYMMDD)
+  - 自动处理登录状态
+  - 与 sync 命令独立，使用独立的登录会话
+
+输出信息:
+  - 会议室列表（按楼层分组）
+  - 占用情况统计
+  - 可用会议室列表
+  - 每个会议室的可用时间段
+  - JSON数据导出（保存到 /tmp/meeting_rooms_YYYYMMDD.json）
+
+登录处理:
+  - 自动检查登录状态
+  - 登录过期时自动重新登录
+  - 状态文件位置: ~/.oa-todo/login_state.json
+
+环境变量:
+  OA_USER_NAME  OA系统用户名
+  OA_USER_PASSWD OA系统密码
+`)
+  .action(async (date, options) => {
+    const rooms = require('../src/commands/rooms');
+    const mergedOptions = {
+      ...options,
+      date: date || options.date,
+      debug: program.opts().debug
+    };
+    await rooms({ ...mergedOptions, config });
+  });
+
+// explore 命令
+program
+  .command('explore [url]')
+  .description('通用页面探索（支持暂停模式供智能体交互）')
+  .option('--pause', '创建暂停会话（提供智能体交互上下文）', false)
+  .option('--timeout, -t <minutes>', '会话超时时间（分钟），默认10', parseInt)
+  .option('--headed, -H', '显示浏览器窗口', false)
+  .option('--close <sessionId>', '关闭指定会话')
+  .option('--name <purpose>', '会话用途标识', 'explore')
+  .addHelpText('after', `
+
+通用页面探索命令，支持多种 OA 场景：
+  - 会议室预约
+  - 请假申请
+  - 费用报销
+  - 通用表单填写
+
+常用示例:
+  oa-todo explore "/meeting/booking" --pause           # 创建暂停会话（自动提供智能体交互上下文）
+  oa-todo explore "/leave/apply" --pause --timeout 20  # 自定义超时时间
+  oa-todo explore "/expense/form" --pause --headed     # 显示浏览器窗口
+  oa-todo explore --close <sessionId>                  # 关闭指定会话
+
+选项说明:
+  --pause            创建暂停会话，输出包含 agentUXContext 的 JSON
+  --timeout, -t      会话超时时间（分钟），默认10分钟
+  --headed, -H       显示浏览器窗口（用于调试）
+  --close <id>       关闭指定会话
+  --name <purpose>   会话用途标识（用于区分不同类型的探索）
+
+智能体交互流程:
+  1. 智能体调用: oa-todo explore <url> --pause
+  2. CLI 返回 JSON（包含 session ID 和 agentUXContext）
+  3. 智能体解析 agentUXContext，使用 agent-browser 探索页面
+  4. 智能体引导用户多轮对话，理解操作意图
+  5. 智能体生成完整的 agent-browser 命令序列
+  6. 用户确认后执行，智能体生成总结
+
+会话管理:
+  - 同一 URL 重复调用会自动续期
+  - 会话默认保存在 ~/.oa-todo/explore-sessions/
+  - 超时后会话自动清理
+
+输出格式 (JSON):
+  {
+    "status": "checkpoint_created",
+    "session": "oa-todo-explore-xxx-1234567890",
+    "url": "https://oa.xgd.com/meeting/booking",
+    "timeout": 600,
+    "agentUXContext": "# 探索智能体引导文件..."
+  }
+`)
+  .action(async (url, options) => {
+    const explore = require('../src/commands/explore');
+    const mergedOptions = {
+      ...options,
+      debug: program.opts().debug
+    };
+    await explore(url, { ...mergedOptions, config });
   });
 
 // 错误处理

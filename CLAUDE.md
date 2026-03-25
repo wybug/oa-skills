@@ -33,7 +33,7 @@ oa-todo approve <fdId> <action>  # Approve todo
 oa-todo status    # Show statistics
 ```
 
-The CLI tool uses SQLite for data persistence and supports advanced features like status management, partial fdId matching, and file-based JSON extraction to avoid truncation issues.
+The CLI tool uses SQLite for data persistence and supports advanced features like status management and file-based JSON extraction to avoid truncation issues.
 
 **Publishing** (internal registry):
 ```bash
@@ -225,6 +225,80 @@ oa-todo approve <fdId> <action>
 - `src/commands/approve.js` - Approve todos
 - `src/commands/status.js` - Show statistics
 - `src/commands/daemon.js` - Manage browser daemon
+
+## AI 生成 RPA 审批脚本
+
+### 全自动流程
+
+AI 可以全自动生成 RPA 审批脚本，用户只需在开始时通过自然语言确认关键信息。
+
+#### 阶段一：自然语言确认
+
+AI 会向你确认以下信息：
+1. **审批类型** - EHR 假期审批、会议邀请、费用报销等
+2. **如何判断流程已审核完毕** - 例如：页面上没有"同意"/"不同意"按钮
+3. **审批"同意"的操作步骤** - 详细描述每个操作步骤
+4. **审批"不同意"的操作步骤** - 详细描述每个操作步骤
+
+#### 阶段二：自动执行
+
+确认信息后，AI 自动执行：
+1. 查找测试数据：`oa-todo list --type <类型>`
+2. 创建暂停会话：`oa-todo approve <fdId> <action> --pause`
+3. 自动探索页面：使用 `agent-browser` 分析页面结构
+4. 生成脚本：`<类型>Approval.js` 和 `<类型>ApprovalTest.js`
+5. 执行测试：运行测试脚本验证功能
+6. 检查完成标准：验证代码结构和功能完整性
+
+#### 阶段三：完成提示
+
+AI 会报告：
+- 生成的文件列表
+- 测试结果统计
+- 下一步建议
+
+### 提示词位置
+
+`oa-todo/scripts/rpa-generator-prompt.md`
+
+### 示例对话
+
+```
+用户：帮我生成 EHR 假期审批的脚本
+
+AI：好的，让我确认几个关键信息：
+
+1. 如何判断流程已审核完毕？
+   - 例如：页面上没有"同意"/"不同意"按钮
+   - 或：显示"已审批"状态
+   - 或：审批按钮被禁用
+
+2. 审批"同意"的操作步骤是什么？
+   - 例如：
+     1. 点击"同意"按钮
+     2. 弹出对话框
+     3. 填写意见（可选）
+     4. 点击"确定"
+
+3. 审批"不同意"的操作步骤是什么？
+   - 例如：
+     1. 点击"不同意"按钮
+     2. 必须填写意见
+     3. 点击"确定"
+
+用户：（提供描述）
+
+AI：（自动执行并报告结果）
+```
+
+### 现有审批脚本
+
+| 脚本 | 类型 | 说明 |
+|------|------|------|
+| `scripts/approvalHelper.js` | 基类 | 审批助手基类 |
+| `scripts/ehrApproval.js` | EHR | EHR 假期审批 |
+| `scripts/ehrApprovalTest.js` | EHR | EHR 测试脚本 |
+| `scripts/rpa-generator-prompt.md` | 模板 | AI 提示词模板 |
 
 ## Common Development Tasks
 
