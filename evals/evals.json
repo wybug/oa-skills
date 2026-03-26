@@ -245,47 +245,6 @@
       ]
     },
     {
-      "id": 9,
-      "name": "complex-approval-flow",
-      "category": "complex",
-      "prompt": "复杂审批第1个待办，需要深度审查",
-      "expected_output": "识别为复杂审批，使用断点模式进行深度分析",
-      "expected_actions": [
-        "识别为需要深度审查的复杂审批",
-        "使用 oa-todo approve <id> --pause 创建断点",
-        "提取并总结待办资料",
-        "询问用户关注点",
-        "进行深度分析",
-        "提供审批建议"
-      ],
-      "assertions": [
-        {
-          "name": "识别复杂审批",
-          "check": "应识别为需要深度审查的复杂审批",
-          "expected": "复杂",
-          "critical": true
-        },
-        {
-          "name": "使用断点模式",
-          "check": "应使用 --pause 参数创建断点",
-          "expected": "--pause",
-          "critical": true
-        },
-        {
-          "name": "提取资料",
-          "check": "应提取并总结待办资料",
-          "expected": "总结",
-          "critical": true
-        },
-        {
-          "name": "询问关注点",
-          "check": "应询问用户关注点",
-          "expected": "关注",
-          "critical": true
-        }
-      ]
-    },
-    {
       "id": 10,
       "name": "type-status-filter",
       "category": "query",

@@ -260,4 +260,3 @@ oa-todo list --status pending
 - [故障排除](references/troubleshooting.md) - FAQ和问题排查
 - [高级用法](references/advanced.md) - 数据库结构与高级查询
 - [最佳实践](references/best-practices.md) - 性能优化与安全建议
-- [旧版脚本迁移](references/legacy.md) - 从旧版脚本迁移
