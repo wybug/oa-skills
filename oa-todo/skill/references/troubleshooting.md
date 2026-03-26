@@ -393,15 +393,17 @@ AGENT_BROWSER_HEADED=1 oa-todo sync
 
 **推荐方案**：配置定时任务自动同步
 
+**⚠️ 时区说明**：以下所有 cron 配置的时间均为**北京时间（UTC+8）**。
+
 1. **凌晨全量同步详情**（避免工作时间超时）：
    ```bash
-   # 每天凌晨2点全量同步
+   # 每天凌晨2点（北京时间）全量同步
    0 2 * * * oa-todo sync --fetch-detail -c 5
    ```
 
 2. **工作时间增量同步**（每小时同步列表+25条详情）：
    ```bash
-   # 周一到周五 8:00-19:00 的整点执行
+   # 周一到周五 8:00-19:00 的整点执行（北京时间）
    0 8-19 * * 1-5 oa-todo sync && oa-todo sync --fetch-detail -c 5 --limit 25
    ```
 
@@ -415,7 +417,7 @@ AGENT_BROWSER_HEADED=1 oa-todo sync
 # 编辑crontab
 crontab -e
 
-# 添加以下两行
+# 添加以下两行（时间均为北京时间）
 0 2 * * * oa-todo sync --fetch-detail -c 5 >> /tmp/oa-sync.log 2>&1
 0 8-19 * * 1-5 oa-todo sync && oa-todo sync --fetch-detail -c 5 --limit 25 >> /tmp/oa-sync.log 2>&1
 ```

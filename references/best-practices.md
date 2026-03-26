@@ -228,13 +228,15 @@ EOF
 
 chmod +x /tmp/cleanup_oa_logs.sh
 
-# 添加到 crontab（每天凌晨3点执行）
+# 添加到 crontab（每天凌晨3点，北京时间）
 # 0 3 * * * /tmp/cleanup_oa_logs.sh
 ```
 
 ---
 
 ## 定时任务
+
+**⚠️ 时区说明**：以下所有 cron 配置的时间均为**北京时间（UTC+8）**。
 
 ### 自动化审批
 
@@ -244,14 +246,14 @@ chmod +x /tmp/cleanup_oa_logs.sh
 # 编辑 crontab
 crontab -e
 
-# 添加以下任务
-# 每天上午9点登录保存状态
+# 添加以下任务（时间均为北京时间）
+# 每天上午9点（北京时间）登录保存状态
 0 9 * * * /path/to/login.sh > /tmp/oa_cron_login.log 2>&1
 
-# 每天上午10点批量审批
+# 每天上午10点（北京时间）批量审批
 0 10 * * * /path/to/batch_approve.sh /path/to/daily_list.csv 3 > /tmp/oa_cron_approve.log 2>&1
 
-# 每周五下午5点清理日志
+# 每周五下午5点（北京时间）清理日志
 0 17 * * 5 find /tmp -name "oa_*.log" -mtime +7 -delete
 ```
 

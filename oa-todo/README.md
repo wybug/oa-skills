@@ -304,13 +304,15 @@ npx agent-browser --session <输出的session> close
 
 ### 定时同步待办
 
+**⚠️ 时区说明**：以下 cron 配置的时间均为**北京时间（UTC+8）**。
+
 建议使用 cron 或类似工具定时执行同步任务：
 
 ```bash
 # crontab 示例：每10分钟同步一次待办列表
 */10 * * * * cd /path/to/oa-todo && node bin/oa-todo.js sync
 
-# 每小时获取详情（分批处理）
+# 每小时（北京时间）获取详情（分批处理）
 0 * * * * cd /path/to/oa-todo && node bin/oa-todo.js sync --fetch-detail --limit 50
 ```
 

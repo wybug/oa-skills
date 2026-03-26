@@ -115,9 +115,11 @@ done
 
 ## 定时同步
 
+**⚠️ 时区说明**：以下 cron 配置的时间均为**北京时间（UTC+8）**。
+
 配合cron实现定时同步：
 
 ```bash
-# 每小时同步一次
+# 每小时同步一次（北京时间）
 0 * * * * /usr/local/bin/oa-todo sync --skip-detail
 ```
