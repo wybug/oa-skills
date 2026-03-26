@@ -1061,8 +1061,29 @@ class Browser {
 
     console.log('✅ 登录成功！');
 
+    // 步骤4.5: 强制设置 j_lang 为 zh-CN（确保跨平台一致性）
+    console.log('🌐 步骤4.5: 设置语言为中文...');
+    const setLangScript = `
+      (function() {
+        document.cookie = 'j_lang=zh-CN; path=/; domain=oa.xgd.com';
+        // 同时尝试设置父域
+        document.cookie = 'j_lang=zh-CN; path=/; domain=.xgd.com';
+        return { success: true, lang: 'zh-CN' };
+      })()
+    `;
+    const setLangTempFile = path.join(PATHS.tempDir, `login_lang_${Date.now()}.js`);
+    fs.writeFileSync(setLangTempFile, setLangScript, 'utf-8');
+    try {
+      await this.exec(`--session ${loginSession} eval --stdin < "${setLangTempFile}"`, { timeout: 5000 });
+    } catch (e) {
+      // 忽略错误，继续执行
+    } finally {
+      if (fs.existsSync(setLangTempFile)) fs.unlinkSync(setLangTempFile);
+    }
+    await new Promise(resolve => setTimeout(resolve, 500)); // 等待 cookie 生效
+
     // 步骤5: 保存登录状态
-    console.log('💾 步骤4: 保存登录状态...');
+    console.log('💾 步骤5: 保存登录状态...');
 
     const stateFile = this.config.stateFile;
     await this.exec(`--session ${loginSession} state save "${stateFile}"`, { timeout: 10000 });

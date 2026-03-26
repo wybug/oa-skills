@@ -19,6 +19,7 @@ const CONFIG = {
   baseUrl: 'https://oa.xgd.com',
   apiEndpoint: '/km/imeeting/km_imeeting_calendar/kmImeetingCalendar.do?method=rescalendar',
   referer: 'https://oa.xgd.com/km/imeeting/km_imeeting_calendar/index_content_place.jsp',
+  language: process.env.OA_LANGUAGE || 'zh-CN',  // 默认中文，可通过环境变量覆盖
   debug: process.env.OA_DEBUG === 'true'  // 环境变量控制调试输出
 };
 
@@ -42,7 +43,15 @@ class OATools {
       const stateData = JSON.parse(fs.readFileSync(CONFIG.stateFile, 'utf8'));
       const cookies = stateData.cookies || [];
 
-      return cookies.map(c => `${c.name}=${c.value}`).join('; ');
+      // 强制覆盖 j_lang 为 zh-CN（防止 Linux 等非中文环境）
+      const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+      // 移除旧的 j_lang 并添加 zh-CN
+      const cleaned = cookieString
+        .split(';')
+        .map(c => c.trim())
+        .filter(c => !c.startsWith('j_lang='))
+        .join('; ');
+      return cleaned ? `${cleaned}; j_lang=zh-CN` : 'j_lang=zh-CN';
     } catch (e) {
       throw new Error(`读取 Cookie 失败: ${e.message}`);
     }
@@ -56,8 +65,10 @@ class OATools {
    */
   _generateCurlCommand(url, headers) {
     // 添加 User-Agent（服务器可能需要此头部验证请求来源）
+    // 添加 Accept-Language 强制使用中文（覆盖系统 locale 设置）
     const allHeaders = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Language': `${CONFIG.language},zh;q=0.9`,
       ...headers
     };
 
@@ -83,6 +94,7 @@ class OATools {
       headers: {
         'Cookie': this.cookie,
         'Accept': 'text/plain, */*; q=0.01',
+        'Accept-Language': `${CONFIG.language},zh;q=0.9`,  // 强制使用中文
         'X-Requested-With': 'XMLHttpRequest',
         'Referer': options.referer || CONFIG.referer,
         ...options.headers
