@@ -49,6 +49,23 @@ class OATools {
   }
 
   /**
+   * 生成 curl 命令字符串
+   * @param {string} url - 请求 URL
+   * @param {Object} headers - 请求头
+   * @returns {string} curl 命令
+   */
+  _generateCurlCommand(url, headers) {
+    let cmd = `curl -X GET '${url}'`;
+    for (const [key, value] of Object.entries(headers)) {
+      // 跳过一些不太重要的头部
+      if (key.toLowerCase() !== 'connection' && key.toLowerCase() !== 'content-length') {
+        cmd += ` \\\n  -H '${key}: ${value}'`;
+      }
+    }
+    return cmd;
+  }
+
+  /**
    * HTTP 请求 - 获取数据
    * @param {string} url - API URL
    * @param {Object} options - 请求选项
@@ -71,6 +88,14 @@ class OATools {
     const timeoutId = setTimeout(() => controller.abort(), opts.timeout);
 
     try {
+      // 在 debug 模式下输出 curl 命令
+      if (CONFIG.debug) {
+        const curlCmd = this._generateCurlCommand(url, opts.headers);
+        console.log('\n========== curl 命令 ==========');
+        console.log(curlCmd);
+        console.log('================================\n');
+      }
+
       const response = await fetch(url, {
         method: opts.method,
         headers: opts.headers,
