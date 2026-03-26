@@ -449,7 +449,9 @@ async function fetchDetailsConcurrent(browser, db, config, options) {
 
   // 计算浏览器实例数和每实例tab数
   const tabsPerInstance = 5;  // 固定每实例5个tab
-  const instances = Math.min(requestedInstances, total);  // 不超过待办数量
+  // 动态计算：每5条待办使用1个实例，不超过用户指定的上限
+  const optimalInstances = Math.ceil(total / tabsPerInstance);
+  const instances = Math.min(requestedInstances, optimalInstances);
 
   const actualConcurrency = instances * tabsPerInstance;
 

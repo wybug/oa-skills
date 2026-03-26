@@ -43,7 +43,7 @@ program
   .option('--force <fdId>', '强制更新指定待办详情')
   .option('--force-update', '强制更新 skip 状态的待办（重置为 pending）', false)
   .option('--fetch-detail', '获取待办详情（默认不同步详情）', false)
-  .option('-c, --concurrency <n>', '详情获取并发数（默认5）', (v) => parseInt(v, 10), 5)
+  .option('-c, --concurrency <n>', '详情获取并发数（默认1）', (v) => parseInt(v, 10), 1)
   .option('--login', '强制重新登录', false)
   .addHelpText('after', `
 
@@ -61,7 +61,7 @@ program
   --force <fdId>    仅更新指定 fdId 的待办详情，不执行列表同步
   --force-update    强制本地与远程同步，将 "skip" 状态重置为 "pending"
   --fetch-detail    获取待办详情（跳过列表同步，从数据库查询缺失详情）
-  -c, --concurrency <n>  详情获取并发数（默认5）
+  -c, --concurrency <n>  详情获取并发数（默认1）
   --login           忽略缓存的登录状态，强制重新登录
 
 工作原理:
@@ -78,8 +78,8 @@ program
 
 并发获取说明:
   创建多个浏览器实例并发获取详情
-  默认5个并发，可通过 -c 参数调整
-  实际并发数不会超过待办数量（如2条待办仅启动2个实例）
+  每5条待办使用1个实例，通过 -c 参数设置上限
+  实例数 = min(-c上限, ceil(待办数/5))
 
 skip 状态机制:
   - 获取审批明细时，如果页面无对应审批按钮（不同待办类型按钮不同），
