@@ -55,8 +55,14 @@ class OATools {
    * @returns {string} curl 命令
    */
   _generateCurlCommand(url, headers) {
+    // 添加 User-Agent（服务器可能需要此头部验证请求来源）
+    const allHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      ...headers
+    };
+
     let cmd = `curl -X GET '${url}'`;
-    for (const [key, value] of Object.entries(headers)) {
+    for (const [key, value] of Object.entries(allHeaders)) {
       // 跳过一些不太重要的头部
       if (key.toLowerCase() !== 'connection' && key.toLowerCase() !== 'content-length') {
         cmd += ` \\\n  -H '${key}: ${value}'`;
@@ -93,6 +99,8 @@ class OATools {
         const curlCmd = this._generateCurlCommand(url, opts.headers);
         console.log('\n========== curl 命令 ==========');
         console.log(curlCmd);
+        console.log('');
+        console.log('💡 使用提示：直接复制上述命令到终端执行（不要修改格式）');
         console.log('================================\n');
       }
 
