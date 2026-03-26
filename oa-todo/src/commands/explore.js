@@ -10,6 +10,7 @@ const fs = require('fs');
 const Browser = require('../lib/browser');
 const ExploreManager = require('../lib/explore-manager');
 const { createOATools } = require('../lib/web-extractor');
+const { generateSessionId, SessionType } = require('../lib/session-naming');
 
 async function explore(url, options) {
   const spinner = ora('正在处理探索请求...').start();
@@ -101,7 +102,7 @@ async function explore(url, options) {
 
     // 生成会话 ID
     const purpose = options.name || 'custom';
-    const sessionId = exploreManager.generateSessionId(purpose);
+    const sessionId = generateSessionId(SessionType.EXPLORE, { context: purpose });
 
     browser = new Browser(options.config, {
       debugMode: options.debug,

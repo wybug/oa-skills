@@ -6,10 +6,11 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { PATHS } = require('./paths');
 
 class ExploreManager {
   constructor(config) {
-    this.exploreSessionsDir = path.join(config.todosDir, 'explore-sessions');
+    this.exploreSessionsDir = PATHS.exploreSessionsDir;
     this.config = config;
     this.defaultTimeout = (config.pauseTimeout || 10) * 60 * 1000; // 转换为毫秒
 

@@ -25,6 +25,7 @@ const fs = require('fs');
 const fsPromises = require('fs').promises;
 const path = require('path');
 const chalk = require('chalk');
+const { generateSessionId, SessionType } = require('./session-naming');
 
 class BrowserPool {
   /**
@@ -73,8 +74,8 @@ class BrowserPool {
    */
   async _initSingleInstance(index, BrowserClass) {
     const browser = new BrowserClass(this.config, { debugMode: this.debug });
-    // 使用时间戳+随机数确保会话名唯一
-    const sessionId = `pool-${index}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+    // 使用统一的会话命名确保会话名唯一
+    const sessionId = generateSessionId(SessionType.POOL, { context: String(index) });
     browser.session = sessionId;
 
     try {

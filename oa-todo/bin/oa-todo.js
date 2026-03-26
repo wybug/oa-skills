@@ -10,30 +10,18 @@ const chalk = require('chalk');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { PATHS, ensureDirectories, getLegacyConfig } = require('../src/lib/paths');
 
 // 设置版本
 const packageJson = require('../package.json');
 program.version(packageJson.version);
 
-// 配置
-const homedir = os.homedir();
+// 配置（使用 getLegacyConfig 保持向后兼容）
+const config = getLegacyConfig();
 
-const config = {
-  dbPath: process.env.OA_DB_PATH || path.join(homedir, '.oa-todo', 'oa_todos.db'),
-  todosDir: process.env.OA_TODOS_DIR || path.join(homedir, '.oa-todo'),
-  detailsDir: process.env.OA_DETAILS_DIR || path.join(homedir, '.oa-todo', 'details'),
-  stateFile: process.env.OA_STATE_FILE || path.join(homedir, '.oa-todo', 'login_state.json'),
-  loginTimeout: parseInt(process.env.LOGIN_TIMEOUT_MINUTES || '25', 10),
-  pauseTimeout: parseInt(process.env.PAUSE_TIMEOUT_MINUTES || '10', 10)
-};
-
-// 确保目录存在
+// 确保目录存在（使用统一的 ensureDirectories）
 function ensureDirs() {
-  [config.todosDir, config.detailsDir].forEach(dir => {
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-  });
+  ensureDirectories();
 }
 
 // 主程序
@@ -209,6 +197,17 @@ program
   .action(async (action, options) => {
     const daemon = require('../src/commands/daemon');
     await daemon(action, { ...options, config });
+  });
+
+// session 命令
+program
+  .command('session')
+  .description('管理浏览器会话')
+  .argument('[action]', '操作: list|close|clean', 'list')
+  .option('--id <sessionId>', '会话ID（用于close操作）')
+  .action(async (action, options) => {
+    const session = require('../src/commands/session');
+    await session(action, { ...options, config });
   });
 
 // rooms 命令

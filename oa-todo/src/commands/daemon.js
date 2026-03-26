@@ -7,9 +7,10 @@ const ora = require('ora');
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { PATHS } = require('../lib/paths');
 
 // 配置文件路径
-const DAEMON_CONFIG_FILE = '/tmp/oa-todo-daemon.json';
+const DAEMON_CONFIG_FILE = PATHS.daemonConfigFile;
 
 async function daemon(action, options) {
   switch (action) {

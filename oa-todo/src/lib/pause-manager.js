@@ -6,10 +6,11 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { PATHS } = require('./paths');
 
 class PauseManager {
   constructor(config) {
-    this.pausesDir = path.join(config.todosDir, 'pauses');
+    this.pausesDir = PATHS.pausesDir;
     this.config = config;
     this.defaultTimeout = (config.pauseTimeout || 10) * 60 * 1000; // 转换为毫秒
 

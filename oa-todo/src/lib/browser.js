@@ -6,6 +6,8 @@ const { execSync, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { generateClientCode, breakpoint } = require('./web-extractor');
+const { PATHS } = require('./paths');
+const { generateSessionId, SessionType } = require('./session-naming');
 
 class Browser {
   constructor(config, options = {}) {
@@ -13,7 +15,7 @@ class Browser {
     this.debugMode = options.debugMode || false;
     // headedMode 由环境变量控制（由 daemon 命令设置）
     this.headedMode = this._getDefaultHeadedMode();
-    this.session = options.session || `oa-todo-${Date.now()}`;
+    this.session = options.session || generateSessionId(SessionType.DEFAULT);
     this.reuseMode = options.reuse || false;  // 复用模式标志
     this.debugInfo = {
       commands: [],
@@ -46,10 +48,9 @@ class Browser {
       return envValue === '1' || envValue === 'true' || envValue === 'yes';
     }
     // 如果环境变量未设置，检查 daemon 配置文件
-    const daemonConfigFile = '/tmp/oa-todo-daemon.json';
     try {
-      if (fs.existsSync(daemonConfigFile)) {
-        const config = JSON.parse(fs.readFileSync(daemonConfigFile, 'utf8'));
+      if (fs.existsSync(PATHS.daemonConfigFile)) {
+        const config = JSON.parse(fs.readFileSync(PATHS.daemonConfigFile, 'utf8'));
         return config.headed || false;
       }
     } catch (e) {
@@ -460,7 +461,7 @@ class Browser {
     }
 
     // 2. 执行代码（结果会显示在页面上）
-    const tempFile = `/tmp/browser_eval_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.js`;
+    const tempFile = path.join(PATHS.tempDir, `browser_eval_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.js`);
     fs.writeFileSync(tempFile, wrappedCode, 'utf-8');
 
     let execResult;
@@ -747,7 +748,7 @@ class Browser {
    */
   async initExtractor() {
     const code = generateClientCode();
-    const tempFile = `/tmp/web_extractor_${Date.now()}.js`;
+    const tempFile = path.join(PATHS.tempDir, `web_extractor_${Date.now()}.js`);
     fs.writeFileSync(tempFile, code, 'utf-8');
 
     try {
@@ -921,7 +922,7 @@ class Browser {
     console.log('========================================\n');
 
     // 创建临时登录会话
-    const loginSession = 'oa-login-' + Date.now();
+    const loginSession = generateSessionId(SessionType.LOGIN);
 
     // 步骤1: 打开OA登录页面
     console.log('🔐 步骤1: 打开OA登录页面...');
@@ -978,7 +979,7 @@ class Browser {
       })()
     `;
 
-    const fillTempFile = `/tmp/login_fill_${Date.now()}.js`;
+    const fillTempFile = path.join(PATHS.tempDir, `login_fill_${Date.now()}.js`);
     fs.writeFileSync(fillTempFile, fillFormScript, 'utf-8');
 
     try {
@@ -1024,7 +1025,7 @@ class Browser {
       })()
     `;
 
-    const submitTempFile = `/tmp/login_submit_${Date.now()}.js`;
+    const submitTempFile = path.join(PATHS.tempDir, `login_submit_${Date.now()}.js`);
     fs.writeFileSync(submitTempFile, submitScript, 'utf-8');
 
     try {

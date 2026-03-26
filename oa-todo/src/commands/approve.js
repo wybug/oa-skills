@@ -11,6 +11,7 @@ const Browser = require('../lib/browser');
 const PauseManager = require('../lib/pause-manager');
 const { validateAction, getValidActions } = require('../lib/detector');
 const { ACTION_TO_STATUS, STATUS_NAMES, TYPE_NAMES } = require('../config');
+const { generateSessionId, SessionType } = require('../lib/session-naming');
 
 // 导入审批助手类
 const { EHRApprovalHelperV2 } = require('../../scripts/ehrApprovalV2');
@@ -156,7 +157,7 @@ async function approve(fdId, action, options) {
       spinner.start('创建浏览器会话...');
       const browser = new Browser(options.config, {
         debugMode: options.debug,
-        session: `oa-todo-pause-${fdId}-${Date.now()}`,
+        session: generateSessionId(SessionType.PAUSE, { context: fdId }),
         reuse: true  // 不关闭现有 daemon
       });
 
