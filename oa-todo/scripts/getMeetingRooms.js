@@ -91,11 +91,15 @@ class OATools {
 
       // 处理空响应或非 JSON 响应
       const text = await response.text();
-      if (!text.trim()) {
+      if (!text || !text.trim()) {
+        if (CONFIG.debug) {
+          console.log('⚠️  API 返回空响应体');
+        }
         return {
           status: response.status,
-          ok: true,
-          data: null
+          ok: true,  // HTTP 状态可能是 200，但数据为空
+          data: null,
+          empty: true  // 添加标志表示空响应
         };
       }
 
@@ -184,13 +188,25 @@ class MeetingRoomQuery {
         throw new Error(`请求失败: ${response.status} - ${response.error}`);
       }
 
+      // 检查响应数据是否为空（Linux 环境兼容性）
+      if (!response.data) {
+        console.error('⚠️  API 返回空数据 (可能由网络或环境问题导致)');
+        if (CONFIG.debug) {
+          console.log('响应状态:', response.status);
+          console.log('响应 ok:', response.ok);
+        }
+        hasMore = false;
+        continue;
+      }
+
       const rooms = Object.values(response.data.main || {});
 
+      // 如果没有会议室数据，停止分页
       if (rooms.length === 0) {
         hasMore = false;
       } else {
         allRooms.push(...rooms);
-        // 检查是否还有更多页
+        // 检查是否还有更多页（添加 null 检查）
         const total = response.data.resource?.total || 0;
         if (allRooms.length >= total) {
           hasMore = false;
@@ -218,12 +234,18 @@ class MeetingRoomQuery {
         console.log(`\n--- 页面 ${resp.page} ---`);
         console.log(`URL: ${resp.url}`);
         console.log(`状态: ${resp.status} ${resp.ok ? '成功' : '失败'}`);
-        console.log(`会议室数: ${Object.keys(resp.data.main || {}).length}`);
-        console.log(`总资源数: ${resp.data.resource?.total || 0}`);
+        console.log(`会议室数: ${resp.data ? Object.keys(resp.data.main || {}).length : 0}`);
+        if (resp.data) {
+          console.log(`总资源数: ${resp.data.resource?.total || 0}`);
+        }
 
         // 显示预约数据
-        const rooms = Object.values(resp.data.main || {});
+        const rooms = resp.data ? Object.values(resp.data.main || {}) : [];
         let hasBookings = false;
+
+        if (!resp.data) {
+          console.log('  (响应数据为空)');
+        }
         rooms.forEach(room => {
           const bookings = room.list || [];
           if (bookings.length > 0) {
