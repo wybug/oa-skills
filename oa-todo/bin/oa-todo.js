@@ -113,7 +113,7 @@ program
   .description('列出待办事项')
   .option('--status <status>', '按状态筛选 (pending/approved/skip/...)')
   .option('--type <type>', '按类型筛选 (meeting/workflow/...)')
-  .option('--limit <n>', '显示数量', parseInt, 20)
+  .option('--limit <n>', '显示数量', parseInt, 10)
   .option('--all', '显示所有', false)
   .option('--json', 'JSON格式输出', false)
   .option('--sort-received <dir>', '按接收时间排序 (desc/asc)', 'desc')
@@ -126,8 +126,6 @@ program
 program
   .command('show <fdId>')
   .description('查看待办详情')
-  .option('--refresh', '强制刷新详情', false)
-  .option('--open', '在浏览器中打开', false)
   .action(async (fdId, options) => {
     const show = require('../src/commands/show');
     const mergedOptions = {

@@ -26,28 +26,6 @@ async function show(fdId, options) {
       await db.close();
       process.exit(1);
     }
-
-    // 在浏览器中打开
-    if (options.open) {
-      const browser = new Browser(options.config, { debugMode: isDebugMode });
-      
-      // 检查登录
-      const loginStatus = await browser.checkLoginValid();
-      if (!loginStatus.valid) {
-        console.log(chalk.yellow('需要重新登录'));
-        await browser.login();
-      }
-      
-      await browser.loadState();
-      await browser.fetchTodoDetail(fdId, todo.href);
-      
-      console.log(chalk.green('已在浏览器中打开'));
-      console.log(chalk.gray(`链接: ${todo.href}`));
-      
-      await db.close();
-      return;
-    }
-    
     // 显示基本信息
     console.log(chalk.bold('\n📋 待办信息'));
     console.log(chalk.gray('─'.repeat(60)));
@@ -88,47 +66,7 @@ async function show(fdId, options) {
     if (todo.screenshot_path) {
       console.log(`${chalk.cyan('截图文件:')} ${todo.screenshot_path}`);
     }
-    
-    // 强制刷新详情
-    if (options.refresh) {
-      console.log(chalk.yellow('\n正在刷新详情...'));
 
-      const browser = new Browser(options.config, { debugMode: isDebugMode });
-      const loginStatus = await browser.checkLoginValid();
-
-      if (!loginStatus.valid) {
-        console.log(chalk.yellow('需要重新登录'));
-        await browser.login();
-      }
-
-      await browser.loadState();
-      await browser.fetchTodoDetail(fdId, todo.href);
-
-      const detailDir = path.join(options.config.detailsDir, fdId);
-      if (!fs.existsSync(detailDir)) {
-        fs.mkdirSync(detailDir, { recursive: true });
-      }
-
-      const snapshot = await browser.snapshot();
-      const snapshotPath = path.join(detailDir, 'snapshot.txt');
-      fs.writeFileSync(snapshotPath, snapshot, 'utf-8');
-
-      // 保存截图（仅在 debug 模式）
-      let screenshotPath = null;
-      if (isDebugMode) {
-        screenshotPath = path.join(detailDir, 'screenshot.png');
-        await browser.screenshot(screenshotPath);
-      }
-
-      const detailPath = path.join(detailDir, 'detail.txt');
-      const detailText = `待办ID: ${todo.fd_id}\n标题: ${todo.title}\n\n=== 页面内容 ===\n\n${snapshot}`;
-      fs.writeFileSync(detailPath, detailText, 'utf-8');
-
-      await db.updateDetailPaths(fdId, detailPath, snapshotPath, screenshotPath);
-
-      console.log(chalk.green('✅ 详情已刷新'));
-    }
-    
     // 显示详情内容
     if (todo.detail_path && fs.existsSync(todo.detail_path)) {
       console.log(chalk.bold('\n📄 详情内容'));
@@ -144,10 +82,6 @@ async function show(fdId, options) {
       if (detailContent.split('\n').length > 50) {
         console.log(chalk.gray('\n... (更多内容请查看文件)'));
       }
-    } else {
-      console.log(chalk.yellow('\n💡 暂无详情文件'));
-      console.log('使用以下命令获取详情:');
-      console.log(chalk.cyan(`  oa-todo show ${fdId} --refresh`));
     }
     
     await db.close();

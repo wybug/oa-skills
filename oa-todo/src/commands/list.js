@@ -34,7 +34,7 @@ async function list(options) {
     }
 
     if (!options.all) {
-      filters.limit = options.limit || 20;
+      filters.limit = options.limit || 10;
     }
     
     // 获取待办列表
@@ -90,15 +90,8 @@ async function list(options) {
     const statusText = filters.status === 'pending' ? '待审核' : (filters.status || '所有');
     const typeText = filters.type ? ` [${TYPE_NAMES[filters.type] || filters.type}]` : '';
     console.log(chalk.gray(`\n共 ${todos.length} 条待办 (${statusText}${typeText})`));
-    
-    // 提示信息
-    if (todos.length > 0) {
-      console.log(chalk.gray('\n💡 提示:'));
-      console.log(chalk.gray('   • 使用完整ID进行审批: oa-todo approve <完整ID> 通过'));
-      console.log(chalk.gray('   • 查看所有状态: oa-todo list --all'));
-      console.log(chalk.gray('   • 查看指定状态: oa-todo list --status approved'));
-    }
-    
+
+
   } catch (error) {
     console.error(chalk.red('错误:'), error.message);
     process.exit(1);

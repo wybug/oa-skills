@@ -18,7 +18,8 @@ const CONFIG = {
   stateFile: process.env.OA_STATE_FILE || `${process.env.HOME}/.oa-todo/login_state.json`,
   baseUrl: 'https://oa.xgd.com',
   apiEndpoint: '/km/imeeting/km_imeeting_calendar/kmImeetingCalendar.do?method=rescalendar',
-  referer: 'https://oa.xgd.com/km/imeeting/km_imeeting_calendar/index_content_place.jsp'
+  referer: 'https://oa.xgd.com/km/imeeting/km_imeeting_calendar/index_content_place.jsp',
+  debug: process.env.OA_DEBUG === 'true'  // 环境变量控制调试输出
 };
 
 /**
@@ -78,7 +79,38 @@ class OATools {
 
       clearTimeout(timeoutId);
 
-      const data = await response.json();
+      // 检查 HTTP 状态
+      if (!response.ok) {
+        return {
+          status: response.status,
+          ok: false,
+          error: `HTTP ${response.status}: ${response.statusText}`,
+          data: null
+        };
+      }
+
+      // 处理空响应或非 JSON 响应
+      const text = await response.text();
+      if (!text.trim()) {
+        return {
+          status: response.status,
+          ok: true,
+          data: null
+        };
+      }
+
+      // 解析 JSON
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        return {
+          status: response.status,
+          ok: false,
+          error: `JSON解析失败: ${e.message}`,
+          data: null
+        };
+      }
 
       return {
         status: response.status,
@@ -179,37 +211,39 @@ class MeetingRoomQuery {
       });
     }
 
-    // 输出原始 API 响应
-    console.log('\n========== 原始 API 响应 ==========');
-    allResponses.forEach((resp, i) => {
-      console.log(`\n--- 页面 ${resp.page} ---`);
-      console.log(`URL: ${resp.url}`);
-      console.log(`状态: ${resp.status} ${resp.ok ? '成功' : '失败'}`);
-      console.log(`会议室数: ${Object.keys(resp.data.main || {}).length}`);
-      console.log(`总资源数: ${resp.data.resource?.total || 0}`);
+    // 输出原始 API 响应（仅在 debug 模式）
+    if (CONFIG.debug) {
+      console.log('\n========== 原始 API 响应 ==========');
+      allResponses.forEach((resp, i) => {
+        console.log(`\n--- 页面 ${resp.page} ---`);
+        console.log(`URL: ${resp.url}`);
+        console.log(`状态: ${resp.status} ${resp.ok ? '成功' : '失败'}`);
+        console.log(`会议室数: ${Object.keys(resp.data.main || {}).length}`);
+        console.log(`总资源数: ${resp.data.resource?.total || 0}`);
 
-      // 显示预约数据
-      const rooms = Object.values(resp.data.main || {});
-      let hasBookings = false;
-      rooms.forEach(room => {
-        const bookings = room.list || [];
-        if (bookings.length > 0) {
-          hasBookings = true;
-          console.log(`\n  ${room.name} (${room.floor}):`);
-          bookings.slice(0, 5).forEach(b => {
-            console.log(`    ${b.start} - ${b.title} (${b.statusText})`);
-          });
-          if (bookings.length > 5) {
-            console.log(`    ... 还有 ${bookings.length - 5} 场`);
+        // 显示预约数据
+        const rooms = Object.values(resp.data.main || {});
+        let hasBookings = false;
+        rooms.forEach(room => {
+          const bookings = room.list || [];
+          if (bookings.length > 0) {
+            hasBookings = true;
+            console.log(`\n  ${room.name} (${room.floor}):`);
+            bookings.slice(0, 5).forEach(b => {
+              console.log(`    ${b.start} - ${b.title} (${b.statusText})`);
+            });
+            if (bookings.length > 5) {
+              console.log(`    ... 还有 ${bookings.length - 5} 场`);
+            }
           }
+        });
+
+        if (!hasBookings) {
+          console.log('  (该页无预约数据)');
         }
       });
-
-      if (!hasBookings) {
-        console.log('  (该页无预约数据)');
-      }
-    });
-    console.log('\n========================================');
+      console.log('\n========================================');
+    }
 
     return { rooms: allRooms, targetDate };
   }
@@ -235,11 +269,13 @@ class MeetingRoomQuery {
 
     const url = `${CONFIG.baseUrl}${CONFIG.apiEndpoint}&${params.toString()}`;
 
-    // 输出原始 URL 供用户参考
-    console.log(`\n========== API 请求信息 ==========`);
-    console.log(`请求 URL: ${url}`);
-    console.log(`Referer: ${CONFIG.referer}`);
-    console.log('========================================\n');
+    // 输出原始 URL 供用户参考（仅在 debug 模式）
+    if (CONFIG.debug) {
+      console.log(`\n========== API 请求信息 ==========`);
+      console.log(`请求 URL: ${url}`);
+      console.log(`Referer: ${CONFIG.referer}`);
+      console.log('========================================\n');
+    }
 
     return url;
   }

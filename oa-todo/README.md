@@ -68,12 +68,6 @@ oa-todo list --json
 ```bash
 # 查看详情
 oa-todo show <fdId>
-
-# 强制刷新详情
-oa-todo show <fdId> --refresh
-
-# 在浏览器中打开
-oa-todo show <fdId> --open
 ```
 
 ### 审批待办

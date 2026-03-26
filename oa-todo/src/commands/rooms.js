@@ -89,7 +89,8 @@ async function rooms(options) {
       stdio: 'inherit',
       env: {
         ...process.env,
-        OA_STATE_FILE: config.stateFile
+        OA_STATE_FILE: config.stateFile,
+        OA_DEBUG: options.debug ? 'true' : 'false'  // 传递 debug 选项
       }
     });
 
