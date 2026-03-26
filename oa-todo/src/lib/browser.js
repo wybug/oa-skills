@@ -129,14 +129,14 @@ class Browser {
 
   async loadState() {
     await this.exec(`--session ${this.session} close`, { timeout: 5000 });
-    await this.exec(`--session ${this.session} open "about:blank"`);
+    await this.exec(`--session ${this.session} open "about:blank" --lang=zh-CN --timezone Asia/Shanghai`);
     await this.exec(`--session ${this.session} state load ${this.config.stateFile}`);
     // 添加一个快照操作来稳定页面状态（确保 CDP 会话完全建立）
     await this.snapshot();
   }
 
   async open(url, waitTimeout) {
-    await this.exec(`--session ${this.session} open "${url}"`);
+    await this.exec(`--session ${this.session} open "${url}" --lang=zh-CN --timezone Asia/Shanghai`);
     // 移动网络可能需要更长的加载时间，默认30秒
     await this.waitForLoad(waitTimeout || 30000);
   }
@@ -213,7 +213,7 @@ class Browser {
       const beforeTabs = await this.listTabs();
 
       // 打开新 tab
-      const cmd = `--session ${this.session} tab new ${url}`;
+      const cmd = `--session ${this.session} tab new ${url} --lang=zh-CN --timezone Asia/Shanghai`;
       if (this.debugMode) {
         console.log(`[openInNewTab] 执行命令: ${cmd}`);
       }
@@ -926,7 +926,7 @@ class Browser {
 
     // 步骤1: 打开OA登录页面
     console.log('🔐 步骤1: 打开OA登录页面...');
-    await this.exec(`--session ${loginSession} open "https://oa.xgd.com"`);
+    await this.exec(`--session ${loginSession} open "https://oa.xgd.com" --lang=zh-CN --timezone Asia/Shanghai`);
     await new Promise(resolve => setTimeout(resolve, 2000));
     await this.exec(`--session ${loginSession} wait --load networkidle`);
 
