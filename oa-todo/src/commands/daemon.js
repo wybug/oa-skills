@@ -50,6 +50,30 @@ async function showStatus(options) {
   console.log(chalk.bold('\n📊 Daemon 状态'));
   console.log(chalk.cyan('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
 
+  const cdpUrl = process.env.OA_CDP_URL || options.config.cdpUrl;
+
+  if (cdpUrl) {
+    console.log(chalk.green('✅ CDP模式：使用外部Chrome'));
+    console.log(chalk.cyan('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
+    console.log(chalk.bold('当前配置:'));
+    console.log(`  CDP URL: ${cdpUrl}`);
+    console.log(`  状态文件: ${options.config.stateFile}`);
+    console.log(`  数据库: ${options.config.dbPath}`);
+
+    // 显示持久化配置
+    if (fs.existsSync(DAEMON_CONFIG_FILE)) {
+      const savedConfig = JSON.parse(fs.readFileSync(DAEMON_CONFIG_FILE, 'utf-8'));
+      if (savedConfig.cdpUrl) {
+        console.log(chalk.cyan('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
+        console.log(chalk.bold('持久化配置:'));
+        console.log(`  CDP模式: 已启用`);
+        console.log(`  启动时间: ${savedConfig.startedAt || savedConfig.restartedAt || 'N/A'}`);
+      }
+    }
+    console.log('');
+    return;
+  }
+
   // 检查 daemon 是否运行
   try {
     const result = execSync('ps aux | grep "[a]gent-browser"', {
@@ -82,6 +106,22 @@ async function showStatus(options) {
 
 async function startDaemon(options) {
   const spinner = ora('启动 daemon...').start();
+  const cdpUrl = process.env.OA_CDP_URL;
+
+  if (cdpUrl) {
+    // CDP模式：保存配置并返回
+    const config = {
+      cdpUrl,
+      startedAt: new Date().toISOString()
+    };
+    fs.writeFileSync(DAEMON_CONFIG_FILE, JSON.stringify(config, null, 2));
+
+    spinner.succeed('CDP模式：使用外部Chrome会话');
+    console.log(chalk.gray(`\nCDP URL: ${cdpUrl}`));
+    console.log(chalk.gray('提示: CDP模式下不启动本地daemon\n'));
+    return;
+  }
+
   const headedMode = options.headed !== undefined ? options.headed : false;
 
   try {
@@ -115,6 +155,21 @@ async function startDaemon(options) {
 
 async function restartDaemon(options) {
   const spinner = ora('重启 daemon...').start();
+  const cdpUrl = process.env.OA_CDP_URL;
+
+  if (cdpUrl) {
+    // CDP模式：保存配置
+    const config = {
+      cdpUrl,
+      restartedAt: new Date().toISOString()
+    };
+    fs.writeFileSync(DAEMON_CONFIG_FILE, JSON.stringify(config, null, 2));
+
+    spinner.succeed('CDP模式：使用外部Chrome会话');
+    console.log(chalk.gray(`\nCDP URL: ${cdpUrl}`));
+    console.log(chalk.gray('提示: CDP模式下不启动本地daemon\n'));
+    return;
+  }
 
   try {
     // 停止现有 daemon
@@ -180,6 +235,15 @@ async function stopDaemon() {
 
 async function releaseDaemon() {
   const spinner = ora('释放 daemon...').start();
+  const cdpUrl = process.env.OA_CDP_URL;
+
+  // CDP模式下不需要关闭外部Chrome
+  if (cdpUrl) {
+    spinner.succeed('CDP模式：配置已保留');
+    console.log(chalk.gray(`\n当前配置: CDP模式`));
+    console.log(chalk.gray('提示: 下次启动将使用相同配置\n'));
+    return;
+  }
 
   try {
     execSync('npx agent-browser close', {

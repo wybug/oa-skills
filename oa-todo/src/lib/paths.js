@@ -44,6 +44,7 @@ function getLegacyConfig() {
     stateFile: PATHS.stateFile,
     loginTimeout: PATHS.loginTimeout,
     pauseTimeout: PATHS.pauseTimeout,
+    cdpUrl: process.env.OA_CDP_URL || null,
   };
 }
 

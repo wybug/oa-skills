@@ -447,11 +447,26 @@ async function fetchDetailsConcurrent(browser, db, config, options) {
   const total = todos.length;
   const requestedInstances = options.concurrency || 1;  // -c 参数指定实例数
 
+  // 检查是否为 CDP 模式（使用外部 Chrome 实例）
+  const cdpUrl = config.cdpUrl || process.env.OA_CDP_URL;
+  const isCdpMode = !!cdpUrl;
+
   // 计算浏览器实例数和每实例tab数
   const tabsPerInstance = 5;  // 固定每实例5个tab
   // 动态计算：每5条待办使用1个实例，不超过用户指定的上限
   const optimalInstances = Math.ceil(total / tabsPerInstance);
-  const instances = Math.min(requestedInstances, optimalInstances);
+
+  // CDP 模式限制：外部 Chrome 只能有一个 CDP 连接，强制使用单实例
+  // 多个 CDP 连接会共享同一个外部 Chrome，可能导致 tab 管理混乱
+  let instances;
+  if (isCdpMode) {
+    instances = 1;
+    if (requestedInstances > 1 && options.debug) {
+      console.log(chalk.gray('[CDP] 并发模式已限制为单实例（外部Chrome限制）'));
+    }
+  } else {
+    instances = Math.min(requestedInstances, optimalInstances);
+  }
 
   const actualConcurrency = instances * tabsPerInstance;
 

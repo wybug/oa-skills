@@ -13,31 +13,42 @@ class Browser {
   constructor(config, options = {}) {
     this.config = config;
     this.debugMode = options.debugMode || false;
-    // headedMode 由环境变量控制（由 daemon 命令设置）
-    this.headedMode = this._getDefaultHeadedMode();
+    // CDP URL（从环境变量读取）
+    this.cdpUrl = config.cdpUrl || process.env.OA_CDP_URL || null;
+    this.cdpMode = !!this.cdpUrl;
+
+    if (this.cdpMode) {
+      // CDP模式：基础命令包含 --cdp
+      this.agentBrowser = `npx agent-browser --cdp "${this.cdpUrl}"`;
+      this.headedMode = true;
+      if (this.debugMode) console.log('🔗 CDP模式：使用外部Chrome会话');
+    } else {
+      // 普通模式：原有逻辑完全不变
+      this.headedMode = this._getDefaultHeadedMode();
+      this.reuseMode = options.reuse || false;  // 复用模式标志
+      // 反检测参数始终启用
+      process.env.AGENT_BROWSER_ARGS = '--disable-blink-features=AutomationControlled';
+
+      // 复用模式下不关闭现有 daemon
+      if (!this.reuseMode) {
+        try {
+          execSync('npx agent-browser close', { timeout: 5000, stdio: 'ignore' });
+        } catch (e) {
+          // 忽略
+        }
+      }
+
+      // 根据 headedMode 构建命令（与 debugMode 解耦）
+      const headedFlag = this.headedMode ? '--headed' : '';
+      this.agentBrowser = `npx agent-browser ${headedFlag}`.trim();
+    }
+
     this.session = options.session || generateSessionId(SessionType.DEFAULT);
-    this.reuseMode = options.reuse || false;  // 复用模式标志
     this.debugInfo = {
       commands: [],
       errors: [],
       snapshots: []
     };
-
-    // 反检测参数始终启用
-    process.env.AGENT_BROWSER_ARGS = '--disable-blink-features=AutomationControlled';
-
-    // 复用模式下不关闭现有 daemon
-    if (!this.reuseMode) {
-      try {
-        execSync('npx agent-browser close', { timeout: 5000, stdio: 'ignore' });
-      } catch (e) {
-        // 忽略
-      }
-    }
-
-    // 根据 headedMode 构建命令（与 debugMode 解耦）
-    const headedFlag = this.headedMode ? '--headed' : '';
-    this.agentBrowser = `npx agent-browser ${headedFlag}`.trim();
   }
 
   // 从环境变量获取浏览器模式（由 daemon 命令设置）

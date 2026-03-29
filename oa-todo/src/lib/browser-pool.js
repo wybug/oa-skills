@@ -639,6 +639,29 @@ class BrowserPool {
    * 关闭所有浏览器实例
    */
   async closeAll() {
+    // 先关闭每个浏览器实例的所有 tabs（CDP 模式下尤为重要）
+    for (const { browser } of this.instances) {
+      try {
+        const tabs = await browser.listTabs();
+        // 从高索引到低索引关闭 tabs
+        for (let i = tabs.length - 1; i >= 0; i--) {
+          try {
+            await browser.closeTab(tabs[i]);
+          } catch (e) {
+            if (this.debug) {
+              console.error(`[Pool] Failed to close tab ${tabs[i]}: ${e.message}`);
+            }
+          }
+        }
+      } catch (e) {
+        if (this.debug) {
+          console.error(`[Pool] Failed to list tabs: ${e.message}`);
+        }
+      }
+    }
+    // 等待 tab 关闭完成
+    await new Promise(resolve => setTimeout(resolve, 300));
+    // 关闭所有浏览器会话
     const closePromises = this.instances.map(({ browser }) => browser.close());
     await Promise.all(closePromises);
     this.instances = [];

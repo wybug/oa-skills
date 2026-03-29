@@ -13,8 +13,8 @@ function detectTodoType(title) {
     return TODO_TYPE.UNKNOWN;
   }
 
-  // 会邀类：标题包含"邀您参会"或"邀请您参加会议"
-  if (title.includes('邀您参会') || title.startsWith('邀请您参加会议')) {
+  // 会邀类：标题包含"邀您参会"或"邀请您参加会议"或"召开时间变更"
+  if (title.includes('邀您参会') || title.startsWith('邀请您参加会议') || title.includes('召开时间变更')) {
     return TODO_TYPE.MEETING;
   }
 
@@ -28,9 +28,9 @@ function detectTodoType(title) {
     return TODO_TYPE.EXPENSE;
   }
 
-  // EHR类：标题包含"休假"、"年假"、"病假"、"事假"、"调休假"、"假"等
+  // EHR类：标题包含"休假"、"年假"、"病假"、"事假"、"调休假"、"假"、"绩效考核"等
   if (title.includes('休假') || title.includes('年假') || title.includes('病假') ||
-      title.includes('事假') || title.includes('调休假') || title.includes('假申请')) {
+      title.includes('事假') || title.includes('调休假') || title.includes('假申请') || title.includes('绩效考核')) {
     return TODO_TYPE.EHR;
   }
 
