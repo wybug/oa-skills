@@ -269,7 +269,7 @@ The pause system allows AI agents to interactively review todos before approval:
 Detection is based on title patterns:
 - **meeting**: Title starts with "邀请您参加会议"
 - **ehr**: Title contains "休假" or "年假"
-- **expense**: Title contains "付款报销"
+- **expense**: Title contains "付款报销" or "费用报销"
 - **workflow**: Title starts with "请审批"
 - **unknown**: Default fallback
 

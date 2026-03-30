@@ -23,8 +23,8 @@ function detectTodoType(title) {
     return TODO_TYPE.WORKFLOW;
   }
 
-  // 报销类：标题以"付款报销"结尾
-  if (title.includes('付款报销')) {
+  // 报销类：标题包含"付款报销"或"费用报销"
+  if (title.includes('付款报销') || title.includes('费用报销')) {
     return TODO_TYPE.EXPENSE;
   }
 
