@@ -8,6 +8,7 @@
 
 ```bash
 oa-todo sync                      # 同步待办列表（默认不获取详情）
+oa-todo sync --new-only           # 增量同步：仅同步新增待办（本地不存在的）
 oa-todo sync --force <fdId>       # 强制更新指定待办详情
 oa-todo sync --fetch-detail       # 获取缺失详情（跳过列表同步）
 oa-todo sync --limit 10           # 限制同步数量（测试用）
@@ -20,8 +21,19 @@ oa-todo sync --force-update       # 重置skip状态为pending
 
 - 首次使用会自动同步待办列表
 - **默认 `oa-todo sync` 仅同步待办列表，不获取详情**（速度快）
+- **增量同步 `oa-todo sync --new-only`**：仅同步OA系统中新增的待办（本地不存在的），跳过已有的待办，速度最快。适合高频定时任务。
 - 使用 `--fetch-detail` 获取待办详情（较慢，按需使用）
 - 后续使用 `oa-todo list` 查看本地数据即可
+
+### AI 增量同步工作流
+
+定时任务推荐使用 `--new-only` 进行增量同步，AI 智能体按以下逻辑执行：
+
+1. **执行增量同步**：`oa-todo sync --new-only`
+2. **判断结果**：
+   - **有新增待办** → 执行 `oa-todo sync --fetch-detail` 获取新增待办的详情，然后提示用户进入审批流程
+   - **无新增待办** → 跳过，不执行 fetch-detail
+3. **有 pending 待办时** → 提示用户有待办需要处理
 
 ### 超时注意事项
 
@@ -49,14 +61,15 @@ oa-todo sync --force-update       # 重置skip状态为pending
 # 1. 每天凌晨2点（北京时间）全量同步详情
 0 2 * * * oa-todo sync --fetch-detail -c 5
 
-# 2. 工作时间每小时同步待办列表 + 25条详情（北京时间 8:00-19:00）
-0 8-19 * * 1-5 oa-todo sync && oa-todo sync --fetch-detail -c 5 --limit 25
+# 2. 工作时间每20-30分钟增量同步（北京时间 8:00-19:00，周一到周五）
+*/30 8-19 * * 1-5 oa-todo sync --new-only
 
 # 说明：
 # - 凌晨全量同步：获取所有待办的完整详情
-# - 工作时间增量同步：每小时同步列表 + 25条最新详情
+# - 工作时间增量同步：每30分钟检查新增待办
+# - AI 智能体会根据 new-only 结果自动判断是否需要执行 fetch-detail
 # - 1-5 表示周一到周五
-# - 8-19 表示8:00到19:00的整点（北京时间）
+# - 8-19 表示8:00到19:00（北京时间）
 ```
 
 ### 完整cron配置示例
@@ -69,8 +82,8 @@ crontab -e
 # OA待办同步 - 每天凌晨2点（北京时间）全量同步详情
 0 2 * * * /usr/local/bin/oa-todo sync --fetch-detail -c 5 >> /tmp/oa-sync.log 2>&1
 
-# OA待办同步 - 工作时间每小时同步列表+25条详情（周一到周五，北京时间 8:00-19:00）
-0 8-19 * * 1-5 /usr/local/bin/oa-todo sync && /usr/local/bin/oa-todo sync --fetch-detail -c 5 --limit 25 >> /tmp/oa-sync.log 2>&1
+# OA待办同步 - 工作时间每30分钟增量同步（周一到周五，北京时间 8:00-19:00）
+*/30 8-19 * * 1-5 /usr/local/bin/oa-todo sync --new-only >> /tmp/oa-sync.log 2>&1
 ```
 
 ### 验证定时任务
