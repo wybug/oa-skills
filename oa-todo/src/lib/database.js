@@ -355,6 +355,16 @@ class Database {
   }
 
   /**
+   * 获取本地最新的接收时间
+   * @returns {string|null} 最新的 received_at 时间
+   */
+  async getLatestReceivedTime() {
+    const sql = 'SELECT MAX(received_at) as latest_received FROM todos WHERE received_at IS NOT NULL';
+    const result = await this.get(sql);
+    return result ? result.latest_received : null;
+  }
+
+  /**
    * 将不在指定列表中的待办标记为已处理
    * @param {Array<string>} activeFdIds - OA系统中仍存在的待办ID列表
    * @returns {Object} { marked: number } 被标记的数量

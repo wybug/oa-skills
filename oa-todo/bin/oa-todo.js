@@ -39,6 +39,7 @@ program.option('--debug', '开启调试模式（详细日志输出）', false);
 program
   .command('sync')
   .description('同步OA系统待办列表')
+  .option('--new-only', '增量同步：仅同步新的待办（独立模式，不与其他选项组合）', false)
   .option('--limit <n>', '限制同步数量（默认0不限制）', parseInt, 0)
   .option('--force <fdId>', '强制更新指定待办详情')
   .option('--force-update', '强制更新 skip 状态的待办（重置为 pending）', false)
@@ -49,6 +50,7 @@ program
 
 常用示例:
   oa-todo sync                      同步待办列表（默认不获取详情）
+  oa-todo sync --new-only           增量同步：仅同步新的待办
   oa-todo sync --fetch-detail       获取缺失详情（跳过列表同步，从数据库查询）
   oa-todo sync -c 3 --fetch-detail  使用3个并发获取详情
   oa-todo sync --fetch-detail --limit 10  获取前10条缺失详情
@@ -57,6 +59,7 @@ program
   oa-todo sync --force-update       将 skip 状态的待办重置为 pending
 
 选项说明:
+  --new-only        增量同步：仅同步新的待办（独立模式，不与其他选项组合）
   --limit <n>       限制获取的待办数量，0 表示不限制
   --force <fdId>    仅更新指定 fdId 的待办详情，不执行列表同步
   --force-update    强制本地与远程同步，将 "skip" 状态重置为 "pending"
@@ -70,6 +73,12 @@ program
     2. 翻页获取所有待办列表（最多50页）
     3. 保存到本地数据库 (~/.oa-todo/oa_todos.db)
     4. 不同步详情（使用 --fetch-detail 单独获取）
+
+  增量同步模式 (--new-only):
+    1. 检查本地最新接收时间
+    2. 倒序翻页获取待办（最新在前）
+    3. 遇到本地时间之前的待办即停止
+    4. 快速同步，通常只需加载前几页
 
   详情获取模式 (--fetch-detail):
     1. 检查登录状态（不打开页面）
@@ -97,6 +106,14 @@ skip 状态机制:
   同步完成后显示: 总计、新增、更新、跳过、重置 数量
   `)
   .action(async (options) => {
+    // 检查选项组合冲突
+    if (options.newOnly) {
+      if (options.limit || options.fetchDetail || options.force) {
+        console.error(chalk.red('错误: --new-only 是独立模式，不能与 --limit、--fetch-detail、--force 组合使用'));
+        process.exit(1);
+      }
+    }
+
     const sync = require('../src/commands/sync');
     // 合并全局 debug 选项
     const mergedOptions = {

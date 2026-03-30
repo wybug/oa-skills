@@ -16,12 +16,12 @@ const { createDetailHandler } = require('../lib/detail-handlers');
 const getTodosScript = `
 (() => {
   const todos = [];
-  
+
   // 查找所有待办行
   const rows = Array.from(document.querySelectorAll('table tbody tr, table tr')).filter(row => {
     if (row.querySelector('th')) return false;
     const text = row.textContent.trim();
-    if (row.querySelectorAll('input[type="checkbox"]').length > 0 && 
+    if (row.querySelectorAll('input[type="checkbox"]').length > 0 &&
         row.querySelectorAll('.lui_paging_t_notpre, .lui_paging_t_hasnext, .lui_paging_t_refresh').length >= 2) {
       return false;
     }
@@ -31,19 +31,19 @@ const getTodosScript = `
     if (!dataHrefLink) return false;
     return text.length > 0;
   });
-  
+
   rows.forEach((row, index) => {
     const allLinks = Array.from(row.querySelectorAll('a'));
     const titleLink = allLinks.find(link => {
       const dataHref = link.getAttribute('data-href');
       return dataHref && dataHref.startsWith('/sys/notify/');
     });
-    
+
     if (titleLink) {
       const dataHref = titleLink.getAttribute('data-href') || titleLink.dataset.href;
       const fdIdMatch = dataHref.match(/fdId=([a-f0-9]+)/i);
       const fdId = fdIdMatch ? fdIdMatch[1] : null;
-      
+
       todos.push({
         index: index + 1,
         title: titleLink.textContent.trim(),
@@ -53,10 +53,10 @@ const getTodosScript = `
       });
     }
   });
-  
+
   const hasNextButton = document.querySelector('.lui_paging_t_hasnext:not(.lui_paging_t_hasnext_n)');
   const hasNext = hasNextButton && hasNextButton.offsetParent !== null;
-  
+
   return {
     success: true,
     todos: todos,
@@ -66,7 +66,192 @@ const getTodosScript = `
 })()
 `;
 
+/**
+ * 增量同步：仅同步新的待办
+ * @param {Object} options - 命令选项
+ * @param {Object} config - 配置对象
+ */
+async function syncIncremental(options, config) {
+  const spinner = ora('正在增量同步...').start();
+
+  try {
+    // 初始化数据库
+    const db = new Database(config.dbPath);
+    await db.init();
+
+    // 获取本地最新接收时间
+    const localLatestTime = await db.getLatestReceivedTime();
+    if (!localLatestTime) {
+      spinner.info('本地无记录，请先执行全量同步');
+      await db.close();
+      return;
+    }
+
+    spinner.text = `本地最新接收时间: ${localLatestTime}`;
+
+    // 检查登录
+    const browser = new Browser(config, { debugMode: options.debug });
+    let loginStatus = await browser.checkLoginValid();
+    if (!loginStatus.valid) {
+      spinner.text = '需要重新登录...';
+      if (!process.env.OA_USER_NAME || !process.env.OA_USER_PASSWD) {
+        spinner.fail('缺少环境变量 OA_USER_NAME 或 OA_USER_PASSWD');
+        console.log(chalk.yellow('\n请在 CoPaw 的 Environments 中配置:'));
+        console.log('  OA_USER_NAME=你的用户名');
+        console.log('  OA_USER_PASSWD=你的密码');
+        await db.close();
+        process.exit(1);
+      }
+      await browser.login();
+      loginStatus = await browser.checkLoginValid();
+    }
+
+    spinner.succeed(`登录状态有效（剩余约 ${loginStatus.remaining} 分钟）`);
+    spinner.start('加载登录状态...');
+    await browser.loadState();
+    spinner.succeed('登录状态已加载');
+
+    // 打开待办页面
+    spinner.start('打开待办页面...');
+    const todoUrl = 'https://oa.xgd.com/xgd/reviewperson/person_todo/todo.jsp?fdModelName=&nodeType=node&&dataType=todo&s_path=%E6%90%9C%E7%B4%A2%E7%B1%BB%E3%80%80%3E%E3%80%80%E6%89%80%E6%9C%89%E5%8A%9E%E5%85%AC%E5%8F%B0%E6%90%9C%E7%B4%A2%E3%80%80%3E%E3%80%80%E6%89%80%E6%9C%89%E5%8A%9E%E5%85%AC%E5%8F%B0&s_css=default';
+    await browser.open(todoUrl);
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    await browser.waitForLoad();
+    spinner.succeed('已打开待办页面');
+
+    // ========== 第一阶段：收集所有新待办到内存 ==========
+    spinner.start('正在收集新待办...');
+
+    const collectedTodos = [];  // 收集的新待办数组
+    const existingFdIds = new Set();  // 已存在的 fdId 集合
+    let pageNum = 1;
+    let shouldStop = false;
+
+    while (!shouldStop && pageNum <= 50) {
+      spinner.text = `正在收集第 ${pageNum} 页... (已收集 ${collectedTodos.length} 条)`;
+
+      const result = await browser.evalWithFile(getTodosScript, `todos_page_${pageNum}`, {
+        maxRetries: 3,
+        debug: options.debug
+      });
+
+      if (!result.success || result.count === 0) {
+        spinner.info('本页无待办或获取失败');
+        break;
+      }
+
+      console.log(chalk.gray(`   本页待办数: ${result.count}`));
+
+      // 收集本页待办到内存
+      for (const todo of result.todos) {
+        if (!todo.fdId) continue;
+
+        const receivedAt = todo.cells[7] || null;
+
+        // 核心逻辑：如果接收时间 <= 本地最新时间，停止收集
+        if (receivedAt && receivedAt <= localLatestTime) {
+          console.log(chalk.gray(`   ⏹️  遇到本地时间之前的待办，停止收集`));
+          console.log(chalk.gray(`   待办时间: ${receivedAt}, 本地最新: ${localLatestTime}`));
+          shouldStop = true;
+          break;
+        }
+
+        // 解析数据并保存到内存数组
+        const parsed = parseTitle(todo.title);
+        const todoData = {
+          fd_id: todo.fdId,
+          title: todo.title,
+          href: todo.href,
+          todo_type: parsed.type,
+          source_dept: parsed.sourceDept,
+          submitter: todo.cells[6] || parsed.submitter,
+          received_at: receivedAt,
+          raw_data: todo
+        };
+
+        collectedTodos.push(todoData);
+        console.log(chalk.gray(`   [${collectedTodos.length}] 收集: ${todo.fdId} ${todo.title.substring(0, 40)}...`));
+      }
+
+      if (shouldStop) break;
+
+      // 检查是否有下一页
+      const hasNextResult = await browser.hasNextPage();
+      if (!hasNextResult.has_next) {
+        console.log(chalk.gray('   ✅ 已到最后一页'));
+        break;
+      }
+
+      // 翻到下一页
+      const clickResult = await browser.clickNextPage();
+      if (!clickResult.clicked) {
+        console.log(chalk.gray('   ✅ 无法点击下一页'));
+        break;
+      }
+
+      pageNum++;
+      await new Promise(resolve => setTimeout(resolve, 4000));
+      await browser.waitForLoad();
+    }
+
+    await browser.close();
+
+    // ========== 第二阶段：批量更新数据库 ==========
+    spinner.succeed(`收集完成！共 ${collectedTodos.length} 条新待办`);
+    spinner.start('正在批量写入数据库...');
+
+    // 查询已存在的记录（一次性查询所有 fdId）
+    const allFdIds = collectedTodos.map(t => t.fd_id);
+    for (const fdId of allFdIds) {
+      const existing = await db.getTodo(fdId);
+      if (existing) {
+        existingFdIds.add(fdId);
+      }
+    }
+
+    // 批量写入数据库
+    let newCount = 0;
+    let updateCount = 0;
+
+    for (const todoData of collectedTodos) {
+      await db.upsertTodo(todoData);
+      if (existingFdIds.has(todoData.fd_id)) {
+        updateCount++;
+      } else {
+        newCount++;
+      }
+    }
+
+    await db.close();
+
+    spinner.succeed('增量同步完成！');
+
+    // 显示统计
+    console.log(chalk.bold('\n📊 增量同步统计:'));
+    console.log(`  新增: ${chalk.green(newCount)} 条`);
+    console.log(`  更新: ${chalk.yellow(updateCount)} 条`);
+    console.log(`  总计: ${newCount + updateCount} 条新待办`);
+    console.log(chalk.gray(`\n本地最新时间: ${localLatestTime}`));
+    console.log(chalk.gray(`数据库: ${config.dbPath}`));
+
+  } catch (error) {
+    spinner.fail('增量同步失败');
+    console.error(chalk.red('\n错误:'), error.message);
+
+    if (error.stack) {
+      console.error(chalk.gray('\n堆栈:'), error.stack);
+    }
+
+    process.exit(1);
+  }
+}
+
 async function sync(options) {
+  // 增量同步独立流程
+  if (options.newOnly) {
+    return syncIncremental(options, options.config);
+  }
+
   const spinner = ora('正在同步待办...').start();
 
   try {
