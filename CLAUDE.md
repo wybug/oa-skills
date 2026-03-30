@@ -57,7 +57,10 @@ LOGIN_TIMEOUT_MINUTES=25                   # Session timeout in minutes
 OA_DB_PATH=~/.oa-todo/oa_todos.db          # Database file location
 OA_TODOS_DIR=~/.oa-todo                    # Todos directory
 OA_DETAILS_DIR=~/.oa-todo/details          # Details directory
+OA_CDP_URL=ws://localhost:9222            # Chrome DevTools Protocol URL (CDP mode)
 ```
+
+**CDP Mode**: Setting `OA_CDP_URL` enables CDP mode, connecting to an external Chrome instance instead of launching a new browser. Useful for debugging or reusing existing browser sessions. Note: CDP mode only supports single-instance concurrency (external Chrome limitation).
 
 **Security**: Never ask users for credentials directly. They must be configured in the environment.
 
@@ -232,6 +235,7 @@ Default location: `~/.oa-todo/` (overridable via `OA_TODOS_DIR`)
   - `screenshot.png` - Page screenshot
 - **Pause sessions**: `~/.oa-todo/pauses/<fdId>.json` - Checkpoint session data
 - **Explore sessions**: `~/.oa-todo/explore-sessions/<sessionId>/` - Exploration session data
+- **Temporary files**: `~/.oa-todo/temp/` - Temporary JS files for eval execution (auto-cleaned)
 
 ## Session Naming Convention
 
@@ -296,21 +300,59 @@ oa-todo daemon start --headed
 oa-todo approve <fdId> <action>
 ```
 
+**CDP Mode** (connect to external Chrome):
+```bash
+# Start Chrome with remote debugging
+chrome --remote-debugging-port=9222
+
+# Set environment variable
+export OA_CDP_URL=ws://localhost:9222
+
+# Run commands (will use external Chrome)
+oa-todo sync
+oa-todo approve <fdId> <action>
+```
+
 ## Architecture
 
 ### Key Modules
 
-- `src/lib/browser.js` - Browser automation wrapper around agent-browser
+- `src/lib/browser.js` - Browser automation wrapper around agent-browser with CDP mode support
 - `src/lib/database.js` - SQLite database operations
 - `src/lib/detector.js` - Todo type detection from titles
 - `src/lib/detail-handlers.js` - Type-specific detail page handlers
-- `src/lib/web-extractor.js` - JavaScript injection for data extraction
+- `src/lib/web-extractor.js` - JavaScript injection for data extraction (WebExtractor toolkit)
 - `src/lib/paths.js` - Centralized path configuration and directory management
 - `src/lib/session-naming.js` - Unified session ID generation and parsing
 - `src/lib/pause-manager.js` - Checkpoint session lifecycle management
 - `src/lib/explore-manager.js` - Explore session lifecycle management
 - `src/lib/browser-pool.js` - Concurrent browser instances for detail fetching
 - `src/config.js` - Constants for status, types, actions, and their mappings
+
+### Browser Capabilities
+
+The Browser class provides advanced automation features:
+
+**Tab Management**:
+- `openInNewTab(url)` - Open URL in a new tab
+- `switchToTab(index)` - Switch to specific tab
+- `closeTab(index)` - Close specified tab
+- `listTabs()` - Get all open tabs
+
+**Data Extraction** (via WebExtractor):
+- `extractTable(selector)` - Extract table data
+- `extractTableAsMarkdown(selector)` - Extract table as Markdown
+- `getAllTables()` - Get overview of all tables on page
+- `getPageOverview()` - Get page structure overview
+- `getElementInfo(selector)` - Get detailed element information
+
+**Advanced Execution**:
+- `evalWithFile(code, resultId)` - Execute JS without JSON truncation (uses file-based result transfer)
+- `initExtractor()` - Initialize WebExtractor toolkit in page
+
+**CDP Mode**:
+When `OA_CDP_URL` is set, browser connects to external Chrome instance via Chrome DevTools Protocol.
+Limitations: Single-instance concurrency only (external Chrome limitation).
 
 ### Commands
 
@@ -422,8 +464,12 @@ AI：（自动执行并报告结果）
 | 脚本 | 类型 | 说明 |
 |------|------|------|
 | `scripts/approvalHelper.js` | 基类 | 审批助手基类 |
-| `scripts/ehrApproval.js` | EHR | EHR 假期审批 |
-| `scripts/ehrApprovalTest.js` | EHR | EHR 测试脚本 |
+| `scripts/ehrApprovalV2.js` | EHR | EHR 假期审批 v2 |
+| `scripts/ehrApprovalTestV3.js` | EHR | EHR 测试脚本 v3 |
+| `scripts/expenseApproval.js` | 费用报销 | 费用报销审批 |
+| `scripts/meetingApproval.js` | 会议邀请 | 会议邀请审批 |
+| `scripts/workflowApproval.js` | 通用流程 | 通用流程审批 |
+| `scripts/getMeetingRooms.js` | 工具 | 会议室查询工具 |
 | `scripts/rpa-generator-prompt.md` | 模板 | AI 提示词模板 |
 
 ## Common Development Tasks
@@ -433,9 +479,10 @@ When modifying the CLI:
 2. Use the handler pattern in `detail-handlers.js` for type-specific logic
 3. Use `src/lib/session-naming.js` for all session ID generation (don't roll your own)
 4. Ensure sessions are closed on exit (even on errors)
-5. Use `evalWithFile()` for JavaScript execution to avoid JSON truncation
+5. Use `evalWithFile()` for JavaScript execution to avoid JSON truncation (writes result to page element, reads via snapshot)
 6. Use `src/lib/paths.js` for all path configuration - never hardcode paths
 7. When adding pause/explore features, use PauseManager/ExploreManager classes
+8. For CDP mode, respect the single-instance limitation when implementing concurrent operations
 
 Session naming:
 - Always use `generateSessionId(type, options)` from `session-naming.js`
