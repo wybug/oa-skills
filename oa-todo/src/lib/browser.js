@@ -937,7 +937,8 @@ class Browser {
 
     // 步骤1: 打开OA登录页面
     console.log('🔐 步骤1: 打开OA登录页面...');
-    await this.exec(`--session ${loginSession} open "https://oa.xgd.com" --lang=zh-CN --timezone Asia/Shanghai`);
+    const loginUrl = `https://oa.xgd.com/login.jsp?j_lang=zh-CN&username=${userName}`;
+    await this.exec(`--session ${loginSession} open "${loginUrl}"`);
     await new Promise(resolve => setTimeout(resolve, 2000));
     await this.exec(`--session ${loginSession} wait --load networkidle`);
 
