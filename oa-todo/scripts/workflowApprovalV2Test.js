@@ -7,10 +7,11 @@
  *
  * 测试流程（不提交真实审批，使用恢复状态）：
  *   1. 检查页面状态（有提交按钮和操作选项）
- *   2. 选择"通过"→填写意见→恢复状态
- *   3. 选择"驳回"→验证驳回节点下拉框→填写意见→恢复状态
- *   4. 选择"转办"→搜索并选择转办人员→填写意见→恢复状态
- *   5. 检查最终状态恢复
+ *   2. 选择"通过"→填写意见
+ *   3. 选择"驳回"→验证驳回节点下拉框→填写意见
+ *   4. 选择"转办"→搜索并选择转办人员→填写意见
+ *   5. 转办人员不存在测试（搜索不存在人员，验证返回失败）
+ *   6. 检查最终状态恢复
  */
 
 const { WorkflowApprovalV2Helper, CONFIG } = require('./workflowApprovalV2');
@@ -41,7 +42,8 @@ async function runTest() {
     step7_selectTransfer: 'FAIL',
     step8_transferPerson: 'FAIL',
     step9_transferComment: 'FAIL',
-    step10_restoreState: 'FAIL'
+    step10_transferPersonNotFound: 'FAIL',
+    step11_restoreState: 'FAIL'
   };
 
   console.log('==========================================');
@@ -439,7 +441,113 @@ async function runTest() {
 
       await helper.sleep(CONFIG.delays.afterInput);
 
-      // ====== 步骤10：恢复初始状态 ======
+      // ====== 步骤10：转办人员不存在测试 ======
+      const notExistPerson = '王某某不存在的测试人员';
+
+      // 点击转办人员输入框触发地址本
+      const clickTransferInput2Js = `
+        (() => {
+          const inp = document.querySelector('#toOtherHandlerNames');
+          if (inp) {
+            inp.click();
+            inp.focus();
+            return { success: true, clicked: true };
+          }
+          return { success: false, error: '未找到转办人员输入框' };
+        })()
+      `;
+      const clickTransfer2Result = helper.eval(clickTransferInput2Js, { timeout: 10000 });
+
+      if (helper._checkSuccess(clickTransfer2Result)) {
+        await helper.sleep(2000);
+
+        // 搜索不存在的人员
+        const searchNotExistJs = `
+          (() => {
+            const personName = ${JSON.stringify(notExistPerson)};
+            const iframes = Array.from(document.querySelectorAll('iframe'));
+            for (const iframe of iframes) {
+              if (!iframe.src || !iframe.src.includes('address_main')) continue;
+              try {
+                const doc = iframe.contentDocument || iframe.contentWindow.document;
+
+                let searchInput = null;
+                const inputs = doc.querySelectorAll('input[type="text"], input:not([type])');
+                for (const inp of inputs) {
+                  if (inp.offsetParent !== null) { searchInput = inp; break; }
+                }
+
+                if (searchInput) {
+                  searchInput.value = '';
+                  searchInput.focus();
+                  searchInput.value = personName;
+                  searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+                  searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+                  searchInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true }));
+                }
+
+                // 检查搜索结果中是否包含该人员
+                const items = doc.querySelectorAll('LI');
+                for (const item of items) {
+                  if (item.offsetParent !== null && item.textContent.includes(personName)) {
+                    return { success: true, found: true, error: '不应找到该人员' };
+                  }
+                }
+
+                // 未找到人员 = 测试通过
+                return { success: true, found: false, searched: !!searchInput };
+              } catch(e) {
+                return { success: false, error: '跨域限制: ' + e.message };
+              }
+            }
+            return { success: false, error: '未找到地址本iframe' };
+          })()
+        `;
+        const searchNotExistResult = helper.eval(searchNotExistJs, { timeout: 15000 });
+
+        if (helper._checkSuccess(searchNotExistResult)) {
+          const foundMatch = searchNotExistResult.match(/"found"\s*:\s*(true|false)/);
+          if (foundMatch?.[1] === 'false') {
+            testcaseResults.step10_transferPersonNotFound = 'PASS';
+            console.log(`  ✓ 步骤10: 转办人员不存在测试通过 (未找到: ${notExistPerson})`);
+          } else {
+            testcaseResults.step10_transferPersonNotFound = 'FAIL';
+            console.log(`  ✗ 步骤10: 不应找到该人员: ${notExistPerson}`);
+          }
+        } else {
+          testcaseResults.step10_transferPersonNotFound = 'WARN';
+          console.log('  ⚠ 步骤10: 地址本弹窗搜索异常');
+        }
+
+        // 关闭地址本弹窗
+        await helper.sleep(1000);
+        const closeAddr2Js = `
+          (() => {
+            const iframes = Array.from(document.querySelectorAll('iframe'));
+            for (const iframe of iframes) {
+              if (!iframe.src || !iframe.src.includes('address_main')) continue;
+              try {
+                const doc = iframe.contentDocument || iframe.contentWindow.document;
+                const closeBtn = Array.from(doc.querySelectorAll('button, a, span, div'))
+                  .find(el => {
+                    const t = el.textContent?.trim();
+                    return (t === '关闭' || t === '取消') && el.offsetParent !== null;
+                  });
+                if (closeBtn) { closeBtn.click(); return { success: true, closedFrom: 'iframe' }; }
+              } catch(e) {}
+            }
+            return { success: false, info: 'no close needed' };
+          })()
+        `;
+        helper.eval(closeAddr2Js, { timeout: 5000 });
+      } else {
+        testcaseResults.step10_transferPersonNotFound = 'FAIL';
+        console.log('  ✗ 步骤10: 转办人员输入框点击失败');
+      }
+
+      await helper.sleep(CONFIG.delays.afterClick);
+
+      // ====== 步骤11：恢复初始状态 ======
       const restoreJs = `
         (() => {
           // 切回"通过"
@@ -487,11 +595,11 @@ async function runTest() {
         const passMatch = finalResult.match(/"passChecked"\s*:\s*(true|false)/);
         const submitMatch = finalResult.match(/"hasSubmitBtn"\s*:\s*(true|false)/);
         if (passMatch?.[1] === 'true' && submitMatch?.[1] === 'true') {
-          testcaseResults.step10_restoreState = 'PASS';
-          console.log('  ✓ 步骤10: 状态恢复成功');
+          testcaseResults.step11_restoreState = 'PASS';
+          console.log('  ✓ 步骤11: 状态恢复成功');
         } else {
-          testcaseResults.step10_restoreState = 'WARN';
-          console.log('  ⚠ 步骤10: 状态恢复可能不完整');
+          testcaseResults.step11_restoreState = 'WARN';
+          console.log('  ⚠ 步骤11: 状态恢复可能不完整');
         }
       }
 
@@ -516,7 +624,8 @@ async function runTest() {
     console.log('[testcase] 步骤7_选择转办: ' + testcaseResults.step7_selectTransfer);
     console.log('[testcase] 步骤8_转办人员: ' + testcaseResults.step8_transferPerson);
     console.log('[testcase] 步骤9_转办意见: ' + testcaseResults.step9_transferComment);
-    console.log('[testcase] 步骤10_状态恢复: ' + testcaseResults.step10_restoreState);
+    console.log('[testcase] 步骤10_人员不存在: ' + testcaseResults.step10_transferPersonNotFound);
+    console.log('[testcase] 步骤11_状态恢复: ' + testcaseResults.step11_restoreState);
   }
 
   console.log('==========================================');

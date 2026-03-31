@@ -1,22 +1,24 @@
 #!/usr/bin/env node
 
 /**
- * 通用流程审批 V2 - RPA 脚本
+ * 通用流程审批助手 V2
  *
- * 支持操作：
- *   通过：选择通过→填写处理意见→点击提交
- *   驳回：选择驳回→选择起草节点→必须填意见→点提交
- *   转办：选择转办→点击转办人员输入框→地址本弹窗搜索人员→选择人员(自动关闭)→填写意见→点提交
+ * 严格按照 rpa-generator-prompt.md 生成
  *
- * 完成判断：界面上没有"提交"按钮
+ * 用户确认的操作步骤:
+ * - 通过: 选择通过 → 填写处理意见 → 点击提交
+ * - 驳回: 选择驳回 → 等待界面选择起草节点 → 必须填意见 → 点提交
+ * - 转办: 选转办 → 在弹出界面中输入转办人，选择对应人员（自动关闭）→ 填写处理意见 → 点击提交
  *
- * 探索发现：
- *   - 操作选项：3个 radio button（LabelText 包裹），value 格式如 handler_superRefuse:驳回
- *   - 驳回节点：select name="jumpToNodeIdSelectObj"，选中驳回后出现
- *   - 转办人员：input#toOtherHandlerNames (readOnly)，点击触发地址本 iframe 弹窗
- *   - 地址本弹窗：iframe address_main.jsp，搜索框 placeholder="请输入关键字"，人员列表 LI 元素
- *   - 处理意见：textarea
- *   - 提交按钮：button "提交"
+ * 完成判断: 界面上没有"提交"按钮
+ *
+ * 探索发现:
+ * - Radio 按钮: input[type="radio"][name="oprGroup"]，通过 label 文本匹配
+ * - 起草节点: select[name="jumpToNodeIdSelectObj"]（驳回时出现）
+ * - 意见输入框: textarea（多种策略降级查找）
+ * - 提交按钮: button 文本匹配"提交"
+ * - 转办人员输入框: input#toOtherHandlerNames 或 input.inputSgl
+ * - 地址本弹窗: iframe[src*="address"]，内含搜索输入框和 LI 列表项
  */
 
 const { ApprovalHelper, CONFIG } = require('./approvalHelper');
@@ -27,545 +29,736 @@ class WorkflowApprovalV2Helper extends ApprovalHelper {
   }
 
   /**
-   * 检查页面是否可审批（是否有提交按钮和操作选项）
+   * 检查待办是否可以审批
+   * @returns {Promise<{isApprovable: boolean, status: string}>}
    */
-  isApprovable() {
-    const js = `
+  async isApprovable() {
+    const checkJs = String.raw`
       (() => {
-        // 查找提交按钮
-        let submitBtn = Array.from(document.querySelectorAll('button'))
-          .find(btn => btn.textContent.trim() === '提交' && btn.offsetParent !== null);
-        if (!submitBtn) {
-          submitBtn = Array.from(document.querySelectorAll('input[type="button"], input[type="submit"]'))
-            .find(btn => btn.value === '提交' && btn.offsetParent !== null);
-        }
+        const submitBtn = Array.from(document.querySelectorAll('button, input[type="button"], input[type="submit"]'))
+          .find(btn => {
+            const text = btn.textContent?.trim() || btn.value;
+            return text === '提交' && btn.offsetParent !== null;
+          });
 
-        // 查找操作单选按钮
-        const radios = document.querySelectorAll('input[type="radio"]');
+        const radios = document.querySelectorAll('input[type="radio"][name="oprGroup"]');
+        const hasRadios = radios.length > 0;
+        const hasSubmit = !!submitBtn;
+
+        return {
+          success: true,
+          isApprovable: hasSubmit && hasRadios,
+          hasSubmitBtn: hasSubmit,
+          hasRadios: hasRadios,
+          status: hasSubmit ? 'pending' : 'processed'
+        };
+      })()
+    `;
+
+    const result = this.eval(checkJs, { timeout: 10000 });
+
+    if (this._checkSuccess(result)) {
+      const isApprovableMatch = result.match(/"isApprovable":\s*(true|false)/);
+      const statusMatch = result.match(/"status":\s*"([^"]+)"/);
+
+      return {
+        isApprovable: isApprovableMatch?.[1] === 'true',
+        status: statusMatch?.[1] || 'unknown'
+      };
+    }
+
+    return { isApprovable: false, status: 'unknown' };
+  }
+
+  /**
+   * 获取页面状态
+   * @returns {Promise<{hasButtons: boolean, status: string}>}
+   */
+  async getPageStatus() {
+    const statusJs = String.raw`
+      (() => {
+        const submitBtn = Array.from(document.querySelectorAll('button, input[type="button"], input[type="submit"]'))
+          .find(btn => {
+            const text = btn.textContent?.trim() || btn.value;
+            return text === '提交' && btn.offsetParent !== null;
+          });
+
+        const radios = document.querySelectorAll('input[type="radio"][name="oprGroup"]');
         const actions = [];
         radios.forEach(r => {
-          const label = r.closest('label, .LabelText');
+          const label = r.closest('label, .LabelText, span, div');
           const text = label ? label.textContent.trim() : '';
           if (['通过', '驳回', '转办'].includes(text)) {
             actions.push({ text, checked: r.checked });
           }
         });
 
+        const hasButtons = !!submitBtn && actions.length > 0;
+
         return {
           success: true,
+          hasButtons,
           hasSubmitBtn: !!submitBtn,
-          hasActionRadios: actions.length > 0,
-          actions,
-          approvable: !!submitBtn && actions.length > 0
+          actions
         };
       })()
     `;
-    const result = this.eval(js, { timeout: 10000 });
-    if (!this._checkSuccess(result)) return false;
-    const match = result.match(/"approvable"\s*:\s*(true|false)/);
-    return match ? match[1] === 'true' : false;
+
+    const result = this.eval(statusJs, { timeout: 10000 });
+
+    if (this._checkSuccess(result)) {
+      const hasButtonsMatch = result.match(/"hasButtons":\s*(true|false)/);
+
+      return {
+        hasButtons: hasButtonsMatch?.[1] === 'true',
+        status: hasButtonsMatch?.[1] === 'true' ? 'pending' : 'processed'
+      };
+    }
+
+    return { hasButtons: false, status: 'unknown' };
   }
 
   /**
-   * 选择操作类型（通过/驳回/转办）
-   * 降级策略：label文本 → radio value → 包含匹配
+   * 选择审批动作单选按钮（通过/驳回/转办）
+   * @param {string} action - "通过" | "驳回" | "转办"
+   * @returns {string} eval 结果字符串
    */
-  selectAction(action) {
-    const js = `
+  _clickActionRadio(action) {
+    const clickRadioJs = String.raw`
       (() => {
-        const action = '${action}';
-        const radios = document.querySelectorAll('input[type="radio"]');
-        let target = null;
+        const actionText = "${action}";
+        let targetRadio = null;
         let strategy = '';
 
-        // 策略1: label 文本精确匹配
-        target = Array.from(radios).find(r => {
-          const label = r.closest('label, .LabelText');
-          return label && label.textContent.trim() === action;
-        });
-        strategy = target ? 'labelText' : '';
-
-        // 策略2: radio value 包含匹配（如 handler_superRefuse:驳回）
-        if (!target) {
-          target = Array.from(radios).find(r => (r.value || '').includes(action));
-          strategy = target ? 'valueContains' : '';
+        // 策略0: 通过 label 文本查找 radio
+        const radios = document.querySelectorAll('input[type="radio"][name="oprGroup"]');
+        for (const radio of radios) {
+          const label = radio.closest('label, .LabelText, span, div');
+          if (label && label.textContent.trim().includes(actionText)) {
+            targetRadio = radio;
+            strategy = 'radio-label';
+            break;
+          }
         }
 
-        // 策略3: label 文本包含匹配
-        if (!target) {
-          target = Array.from(radios).find(r => {
-            const label = r.closest('label, .LabelText');
-            return label && label.textContent.trim().includes(action);
-          });
-          strategy = target ? 'labelContains' : '';
+        // 策略1: 通过 radio 的 value 属性查找
+        if (!targetRadio) {
+          const valueMap = { '通过': 'pass', '驳回': 'reject', '转办': 'transfer' };
+          const keyword = valueMap[actionText] || actionText;
+          for (const radio of radios) {
+            if (radio.value && radio.value.includes(keyword)) {
+              targetRadio = radio;
+              strategy = 'radio-value';
+              break;
+            }
+          }
         }
 
-        if (target) {
-          const debugInfo = { tagName: target.tagName, value: target.value };
-          target.click();
-          return { success: true, action, strategy, debugInfo };
+        // 策略2: 在所有 radio 中通过父元素文本查找
+        if (!targetRadio) {
+          const allRadios = document.querySelectorAll('input[type="radio"]');
+          for (const radio of allRadios) {
+            const parent = radio.parentElement;
+            if (parent && parent.textContent.trim().includes(actionText)) {
+              targetRadio = radio;
+              strategy = 'radio-parent';
+              break;
+            }
+          }
         }
 
-        return { success: false, error: '未找到操作单选按钮: ' + action };
+        if (targetRadio) {
+          targetRadio.click();
+          // 触发 change 事件
+          targetRadio.dispatchEvent(new Event('change', { bubbles: true }));
+          return { success: true, selected: actionText, strategy };
+        }
+
+        return { success: false, error: '未找到审批动作选项: ' + actionText };
       })()
     `;
-    const result = this.eval(js, { timeout: 10000 });
+
+    const result = this.eval(clickRadioJs, { timeout: 10000 });
+
     if (!this._checkSuccess(result)) {
-      throw new Error(`未找到操作单选按钮: ${action}`);
+      throw new Error(`未找到审批动作选项: ${action}`);
     }
+
     return result;
   }
 
   /**
-   * 选择驳回目标节点
-   * select name="jumpToNodeIdSelectObj"，降级策略：起草节点→第一个选项
+   * 选择起草节点（驳回时需要）
+   * @returns {string} eval 结果字符串
    */
-  selectRejectNode(nodeName) {
-    const js = `
+  _selectDraftNode() {
+    const selectNodeJs = String.raw`
       (() => {
-        const nodeName = ${JSON.stringify(nodeName || '')};
-        // 按name查找
-        let sel = document.querySelector('select[name="jumpToNodeIdSelectObj"]');
-        // 降级：查找含"节点"选项的select
-        if (!sel || sel.offsetParent === null) {
-          sel = null;
-          for (const s of document.querySelectorAll('select')) {
-            if (s.offsetParent === null) continue;
-            if (Array.from(s.options).some(o => o.textContent.includes('节点'))) { sel = s; break; }
+        // 策略0: 通过 name 属性查找
+        let select = document.querySelector('select[name="jumpToNodeIdSelectObj"]');
+
+        // 策略1: 查找可见的 select 元素
+        if (!select) {
+          const selects = document.querySelectorAll('select');
+          for (const sel of selects) {
+            if (sel.offsetParent !== null && sel.options.length > 1) {
+              select = sel;
+              break;
+            }
           }
         }
 
-        if (!sel) return { success: false, error: '未找到驳回到下拉框' };
-
-        const options = Array.from(sel.options);
-        let opt = null;
-        if (nodeName) opt = options.find(o => o.textContent.includes(nodeName));
-        if (!opt) opt = options.find(o => o.textContent.includes('起草'));
-        if (!opt && options.length > 0) opt = options[0];
-
-        if (opt) {
-          sel.value = opt.value;
-          sel.dispatchEvent(new Event('change', { bubbles: true }));
-          return { success: true, selectedNode: opt.textContent.trim(), strategy: 'select' };
+        if (!select || select.offsetParent === null) {
+          return { success: false, error: '驳回节点下拉框未出现' };
         }
-        return { success: false, error: '未找到可选节点' };
+
+        const options = Array.from(select.options);
+        // 优先选择包含"起草"的选项
+        let targetOption = options.find(o => o.textContent.includes('起草'));
+        if (!targetOption && options.length > 0) {
+          // 降级：选择第一个非空选项
+          targetOption = options.find(o => o.value && o.value.trim() !== '') || options[0];
+        }
+
+        if (targetOption) {
+          select.value = targetOption.value;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          return {
+            success: true,
+            selectedNode: targetOption.textContent.trim(),
+            strategy: 'select-option'
+          };
+        }
+
+        return { success: false, error: '无可选节点' };
       })()
     `;
-    return this.eval(js, { timeout: 10000 });
+
+    const result = this.eval(selectNodeJs, { timeout: 10000 });
+
+    if (!this._checkSuccess(result)) {
+      throw new Error('驳回节点下拉框未出现或无法选择');
+    }
+
+    return result;
   }
 
   /**
-   * 转办人员选择
-   * 点击 toOtherHandlerNames 输入框触发地址本 iframe 弹窗，
-   * 在 iframe 中搜索并选择人员
+   * 点击转办人员输入框，触发地址本弹窗
+   * @returns {string} eval 结果字符串
    */
-  selectTransferPerson(personName) {
-    // 步骤1: 点击转办人员输入框触发地址本弹窗
-    const triggerJs = `
+  _clickTransferInput() {
+    const clickInputJs = String.raw`
       (() => {
-        const inp = document.querySelector('#toOtherHandlerNames');
-        if (!inp) return { success: false, error: '未找到转办人员输入框' };
-        inp.click();
-        inp.focus();
-        return { success: true, triggered: true };
-      })()
-    `;
-    const triggerResult = this.eval(triggerJs, { timeout: 10000 });
-    if (!this._checkSuccess(triggerResult)) {
-      throw new Error('转办人员输入框点击失败');
-    }
+        // 策略0: 通过 id 查找
+        let input = document.querySelector('#toOtherHandlerNames');
 
-    // 等待地址本弹窗加载
-    const sleep = ms => new Promise(r => setTimeout(r, ms));
-    // 注意：这里无法用 await，因为 selectTransferPerson 是同步调用的 eval
-    // 改为在 approve() 中调用前后加 sleep
-
-    // 步骤2: 在地址本 iframe 中搜索并选择人员
-    const searchAndSelectJs = `
-      (() => {
-        const personName = ${JSON.stringify(personName)};
-        // 查找地址本 iframe
-        const iframes = Array.from(document.querySelectorAll('iframe'));
-        let addrDoc = null;
-        for (const iframe of iframes) {
-          if (iframe.src && iframe.src.includes('address_main') && iframe.offsetParent !== null) {
-            try {
-              addrDoc = iframe.contentDocument || iframe.contentWindow.document;
-              if (addrDoc) break;
-            } catch(e) {}
-          }
+        // 策略1: 通过 class 查找
+        if (!input) {
+          input = document.querySelector('input.inputSgl');
         }
-        if (!addrDoc) return { success: false, error: '地址本弹窗未出现' };
 
-        // 查找搜索输入框
-        let searchInput = null;
-        const inputs = addrDoc.querySelectorAll('input[type="text"], input:not([type])');
-        for (const inp of inputs) {
-          if (inp.offsetParent !== null && (inp.placeholder?.includes('关键字') || inp.className?.includes('form-control'))) {
-            searchInput = inp;
-            break;
-          }
-        }
-        // 降级：第一个可见输入框
-        if (!searchInput) {
+        // 策略2: 查找可见的 readonly input（转办人员输入框通常是 readonly）
+        if (!input) {
+          const inputs = document.querySelectorAll('input[type="text"], input:not([type])');
           for (const inp of inputs) {
-            if (inp.offsetParent !== null) { searchInput = inp; break; }
+            if (inp.offsetParent !== null && (inp.readOnly || inp.placeholder?.includes('人员') || inp.placeholder?.includes('选择'))) {
+              input = inp;
+              break;
+            }
           }
         }
 
-        if (searchInput) {
-          searchInput.value = '';
-          searchInput.focus();
-          searchInput.value = personName;
-          searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-          searchInput.dispatchEvent(new Event('change', { bubbles: true }));
-          searchInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true }));
+        if (input) {
+          input.click();
+          input.focus();
+          const debugInfo = {
+            tagName: input.tagName,
+            id: input.id,
+            className: input.className,
+            value: input.value,
+            readOnly: input.readOnly
+          };
+          return { success: true, clicked: true, debugInfo };
         }
 
-        return { success: true, searched: true, hasSearchInput: !!searchInput };
+        return { success: false, error: '未找到转办人员输入框' };
       })()
     `;
-    const searchResult = this.eval(searchAndSelectJs, { timeout: 15000 });
-    if (!this._checkSuccess(searchResult)) {
-      throw new Error('地址本搜索输入失败');
+
+    const result = this.eval(clickInputJs, { timeout: 10000 });
+
+    if (!this._checkSuccess(result)) {
+      throw new Error('未找到转办人员输入框');
     }
 
-    // 步骤3: 等待搜索结果，选择匹配人员
-    const selectJs = `
+    return result;
+  }
+
+  /**
+   * 在地址本弹窗中搜索并选择转办人员
+   * @param {string} personName - 人员姓名
+   * @returns {string} eval 结果字符串
+   * @throws 人员未找到时关闭弹窗并抛出错误
+   */
+  _selectTransferPerson(personName) {
+    if (!personName) {
+      throw new Error('转办操作必须指定转办人员');
+    }
+
+    const searchAndSelectJs = String.raw`
       (() => {
         const personName = ${JSON.stringify(personName)};
         const iframes = Array.from(document.querySelectorAll('iframe'));
-        let addrDoc = null;
+
         for (const iframe of iframes) {
-          if (iframe.src && iframe.src.includes('address_main') && iframe.offsetParent !== null) {
-            try {
-              addrDoc = iframe.contentDocument || iframe.contentWindow.document;
-              if (addrDoc) break;
-            } catch(e) {}
+          // 只检查地址本 iframe
+          if (!iframe.src || !iframe.src.includes('address')) continue;
+
+          try {
+            const doc = iframe.contentDocument || iframe.contentWindow.document;
+
+            // 查找搜索输入框
+            let searchInput = null;
+            const inputs = doc.querySelectorAll('input[type="text"], input:not([type])');
+            for (const inp of inputs) {
+              if (inp.offsetParent !== null) {
+                searchInput = inp;
+                break;
+              }
+            }
+            if (!searchInput && inputs.length > 0) {
+              searchInput = inputs[0];
+            }
+
+            if (searchInput) {
+              searchInput.value = '';
+              searchInput.focus();
+              searchInput.value = personName;
+              searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+              searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+              searchInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true }));
+            }
+
+            // 查找并点击匹配人员
+            const items = doc.querySelectorAll('LI, li, [class*="person"], [class*="item"]');
+            for (const item of items) {
+              if (item.offsetParent !== null && item.textContent.includes(personName)) {
+                item.click();
+                return { success: true, selectedPerson: personName, strategy: 'liClick' };
+              }
+            }
+
+            // 搜索已输入但未找到匹配人员
+            return {
+              success: false,
+              error: '搜索结果中未找到人员: ' + personName,
+              searched: !!searchInput
+            };
+          } catch (e) {
+            return { success: false, error: '跨域限制: ' + e.message };
           }
         }
-        if (!addrDoc) return { success: false, error: '地址本弹窗已关闭' };
 
-        // 查找人员列表项
-        const items = addrDoc.querySelectorAll('li, [class*="item"]');
-        let target = null;
-        for (const item of items) {
-          const text = item.textContent?.trim() || '';
-          if (text.includes(personName)) {
-            target = item;
-            break;
-          }
-        }
-
-        if (target) {
-          const debugInfo = {
-            tagName: target.tagName,
-            textContent: target.textContent.trim().substring(0, 50)
-          };
-          target.click();
-          return { success: true, selectedPerson: personName, strategy: 'liClick', debugInfo };
-        }
-        return { success: false, error: '未找到人员: ' + personName };
+        return { success: false, error: '未找到地址本弹窗iframe' };
       })()
     `;
-    const selectResult = this.eval(selectJs, { timeout: 15000 });
-    if (!this._checkSuccess(selectResult)) {
-      // 找不到转办人，先关闭地址本弹窗，再抛出错误终止审批
+
+    const result = this.eval(searchAndSelectJs, { timeout: 15000 });
+
+    if (!this._checkSuccess(result)) {
+      // 关闭可能残留的弹窗
       this._closeAddressBook();
       throw new Error(`转办人员选择失败，未找到: ${personName}，审批已终止`);
     }
 
-    // 步骤4: 关闭地址本弹窗（如果未自动关闭）
-    const closeJs = `
-      (() => {
-        const iframes = Array.from(document.querySelectorAll('iframe'));
-        for (const iframe of iframes) {
-          if (iframe.src && iframe.src.includes('address_main')) {
-            try {
-              const doc = iframe.contentDocument || iframe.contentWindow.document;
-              const closeBtn = Array.from(doc.querySelectorAll('button, a, span'))
-                    .find(el => ['关闭', '取消', '×'].includes(el.textContent?.trim()));
-              if (closeBtn && closeBtn.offsetParent !== null) {
-                closeBtn.click();
-                return { success: true, closed: true };
-              }
-            } catch(e) {}
-          }
-        }
-        return { success: true, info: '弹窗可能已自动关闭' };
-      })()
-    `;
-    this.eval(closeJs, { timeout: 5000 });
-
-    return selectResult;
+    return result;
   }
 
   /**
-   * 关闭地址本弹窗（内部方法）
+   * 关闭地址本弹窗
    */
   _closeAddressBook() {
-    const closeJs = `
+    const closeJs = String.raw`
       (() => {
         const iframes = Array.from(document.querySelectorAll('iframe'));
         for (const iframe of iframes) {
-          if (!iframe.src || !iframe.src.includes('address_main')) continue;
+          if (!iframe.src || !iframe.src.includes('address')) continue;
           try {
             const doc = iframe.contentDocument || iframe.contentWindow.document;
             const closeBtn = Array.from(doc.querySelectorAll('button, a, span, div'))
-              .find(el => ['关闭', '取消', '×'].includes(el.textContent?.trim()) && el.offsetParent !== null);
-            if (closeBtn) { closeBtn.click(); return { success: true, closed: true }; }
-          } catch(e) {}
+              .find(el => {
+                const t = el.textContent?.trim();
+                return (t === '关闭' || t === '取消' || t === '×') && el.offsetParent !== null;
+              });
+            if (closeBtn) {
+              closeBtn.click();
+              return { success: true, closedFrom: 'iframe' };
+            }
+          } catch (e) {}
         }
-        // 降级：点击页面上的关闭元素
-        const closeEl = Array.from(document.querySelectorAll('div, span, a'))
-          .find(el => ['关闭', '×'].includes(el.textContent?.trim()) && el.offsetParent !== null);
-        if (closeEl) { closeEl.click(); return { success: true, closed: true }; }
+
+        // 降级到主文档查找关闭按钮
+        const mainCloseBtn = Array.from(document.querySelectorAll('button, a, span, div'))
+          .find(el => {
+            const t = el.textContent?.trim();
+            return (t === '关闭' || t === '取消') && el.offsetParent !== null;
+          });
+        if (mainCloseBtn) {
+          mainCloseBtn.click();
+          return { success: true, closedFrom: 'main' };
+        }
+
         return { success: true, info: '无需关闭' };
       })()
     `;
+
     this.eval(closeJs, { timeout: 5000 });
   }
 
   /**
    * 填写处理意见
+   * @param {string} comment - 处理意见
+   * @returns {string} eval 结果字符串
    */
-  fillComment(comment) {
-    const js = `
+  _fillComment(comment) {
+    const commentToUse = comment || '同意';
+
+    const commentJs = String.raw`
       (() => {
-        const comment = ${JSON.stringify(comment || '')};
-        let target = null;
+        const comment = "${commentToUse}";
+        let targetBox = null;
         let strategy = '';
 
-        // 策略1: 通过父元素文本查找（意见/处理意见/审批意见）
-        const labels = Array.from(document.querySelectorAll('label, td, th, .LabelText'));
-        for (const label of labels) {
-          const t = label.textContent.trim();
-          if (t.includes('意见') || t.includes('处理意见') || t.includes('审批意见')) {
-            const parent = label.parentElement;
-            if (parent) {
-              const ta = parent.querySelector('textarea');
-              const inp = parent.querySelector('input[type="text"]');
-              const nextTa = parent.nextElementSibling?.querySelector('textarea');
-              const nextInp = parent.nextElementSibling?.querySelector('input[type="text"]');
-              target = ta || inp || nextTa || nextInp;
-              if (target && target.offsetParent !== null) { strategy = 'parentLabel'; break; }
+        // 策略0: 通过 placeholder 查找
+        const allTextareas = Array.from(document.querySelectorAll('textarea'));
+        targetBox = allTextareas.find(box => box.placeholder?.includes('意见'));
+        if (targetBox) strategy = 'placeholder';
+
+        // 策略1: 通过父元素/兄弟元素文本查找
+        if (!targetBox) {
+          const allLabels = Array.from(document.querySelectorAll('label, td, .LabelText, th'));
+          for (const label of allLabels) {
+            const t = label.textContent.trim();
+            if (t.includes('意见') || t.includes('处理意见')) {
+              const parent = label.parentElement;
+              if (parent) {
+                targetBox = parent.querySelector('textarea') || parent.querySelector('input[type="text"]');
+                if (!targetBox) {
+                  targetBox = parent.nextElementSibling?.querySelector('textarea') ||
+                              parent.nextElementSibling?.querySelector('input[type="text"]');
+                }
+              }
+              if (targetBox && targetBox.offsetParent !== null) {
+                strategy = 'labelText';
+                break;
+              }
+              targetBox = null;
             }
           }
         }
 
-        // 策略2: 查找第一个可见 textarea
-        if (!target) {
-          for (const ta of document.querySelectorAll('textarea')) {
-            if (ta.offsetParent !== null && ta.offsetHeight > 0) { target = ta; strategy = 'visibleTextarea'; break; }
+        // 策略2: 查找第一个可见 textarea（降级）
+        if (!targetBox) {
+          for (const ta of allTextareas) {
+            if (ta.offsetParent !== null && ta.offsetHeight > 0) {
+              targetBox = ta;
+              strategy = 'visibleTextarea';
+              break;
+            }
           }
         }
 
-        // 策略3: contentEditable div
-        if (!target) {
-          for (const el of document.querySelectorAll('[contenteditable="true"]')) {
-            if (el.offsetParent !== null) { target = el; strategy = 'contentEditable'; break; }
-          }
+        // 策略3: 查找 class 包含 review/content 的 textarea
+        if (!targetBox) {
+          targetBox = document.querySelector('textarea.process_review_content, textarea[class*="review"], textarea[class*="comment"]');
+          if (targetBox) strategy = 'className';
         }
 
-        if (target) {
-          if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
-            target.value = comment;
-            target.dispatchEvent(new Event('focus', { bubbles: true }));
-            target.dispatchEvent(new Event('input', { bubbles: true }));
-            target.dispatchEvent(new Event('change', { bubbles: true }));
-            target.dispatchEvent(new Event('blur', { bubbles: true }));
-          } else {
-            target.textContent = comment;
-            target.dispatchEvent(new Event('input', { bubbles: true }));
-          }
+        if (targetBox) {
+          targetBox.value = comment;
+          targetBox.selectionStart = 0;
+          targetBox.selectionEnd = comment.length;
+          targetBox.dispatchEvent(new Event('focus', { bubbles: true }));
+          targetBox.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true }));
+          targetBox.dispatchEvent(new Event('input', { bubbles: true }));
+          targetBox.dispatchEvent(new Event('change', { bubbles: true }));
+          targetBox.dispatchEvent(new Event('blur', { bubbles: true }));
           return { success: true, strategy, value: comment };
         }
+
         return { success: false, error: '未找到意见输入框' };
       })()
     `;
-    return this.eval(js, { timeout: 10000 });
+
+    const result = this.eval(commentJs, { timeout: 10000 });
+
+    if (!this._checkSuccess(result)) {
+      throw new Error('未找到意见输入框（意见为必填项）');
+    }
+
+    return result;
   }
 
   /**
    * 点击提交按钮
+   * @returns {string} eval 结果字符串
    */
-  clickSubmit() {
-    const js = `
+  _clickSubmit() {
+    const submitJs = String.raw`
       (() => {
-        let btn = null;
+        let targetBtn = null;
         let strategy = '';
 
-        // 策略1: button 文本
-        btn = Array.from(document.querySelectorAll('button'))
-          .find(b => b.textContent.trim() === '提交' && b.offsetParent !== null);
-        strategy = btn ? 'button-text' : '';
-
-        // 策略2: input[type="button"] value
-        if (!btn) {
-          btn = Array.from(document.querySelectorAll('input[type="button"]'))
-            .find(b => b.value === '提交' && b.offsetParent !== null);
-          strategy = btn ? 'input-button' : '';
+        // 策略0: 通过 className 查找
+        targetBtn = document.querySelector('button.process_review_button, span.process_review_button');
+        if (targetBtn && targetBtn.offsetParent !== null) {
+          strategy = 'className';
+        } else {
+          targetBtn = null;
         }
 
-        // 策略3: input[type="submit"] value
-        if (!btn) {
-          btn = Array.from(document.querySelectorAll('input[type="submit"]'))
-            .find(b => b.value === '提交' && b.offsetParent !== null);
-          strategy = btn ? 'input-submit' : '';
+        // 策略1: 按文本内容查找 button
+        if (!targetBtn) {
+          const buttons = document.querySelectorAll('button, input[type="button"], input[type="submit"]');
+          for (const btn of buttons) {
+            const text = btn.textContent?.trim() || btn.value;
+            if (text === '提交' && btn.offsetParent !== null) {
+              targetBtn = btn;
+              strategy = 'textContent';
+              break;
+            }
+          }
         }
 
-        // 策略4: 降级查找
-        if (!btn) {
-          btn = Array.from(document.querySelectorAll('div, span, a'))
-            .find(el => el.textContent.trim() === '提交' && el.offsetParent !== null);
-          strategy = btn ? 'fallback' : '';
+        // 策略2: 按类名模糊匹配
+        if (!targetBtn) {
+          const classElements = document.querySelectorAll('[class*="submit"], [class*="btn"]');
+          for (const el of classElements) {
+            if (el.textContent?.trim() === '提交' && el.offsetParent !== null) {
+              targetBtn = el;
+              strategy = 'classNameFuzzy';
+              break;
+            }
+          }
         }
 
-        if (btn) {
+        // 策略3: 降级查找任何包含"提交"文本的可点击元素
+        if (!targetBtn) {
+          const allElements = document.querySelectorAll('div, button, a, span, input');
+          for (const el of allElements) {
+            if (el.offsetParent === null) continue;
+            const text = el.textContent?.trim() || el.value;
+            if (text === '提交') {
+              targetBtn = el;
+              strategy = 'fallback';
+              break;
+            }
+          }
+        }
+
+        if (targetBtn) {
           const debugInfo = {
-            tagName: btn.tagName, className: btn.className, id: btn.id,
-            textContent: btn.textContent?.trim().substring(0, 50)
+            tagName: targetBtn.tagName,
+            className: targetBtn.className,
+            id: targetBtn.id,
+            textContent: targetBtn.textContent?.trim().substring(0, 50)
           };
-          btn.click();
+          targetBtn.click();
           return { success: true, clicked: '提交', strategy, debugInfo };
         }
+
         return { success: false, error: '未找到提交按钮' };
       })()
     `;
-    return this.eval(js, { timeout: 10000 });
+
+    const result = this.eval(submitJs, { timeout: 30000 });
+
+    if (!this._checkSuccess(result)) {
+      throw new Error('未找到提交按钮');
+    }
+
+    return result;
   }
 
   /**
-   * 恢复初始状态（测试模式用）
+   * 点击取消按钮（测试模式用）
+   * @returns {string} eval 结果字符串
    */
-  restoreState() {
-    const js = `
+  _clickCancel() {
+    const cancelJs = String.raw`
       (() => {
-        const radios = document.querySelectorAll('input[type="radio"]');
-        const passRadio = Array.from(radios).find(r => {
-          const label = r.closest('label, .LabelText');
-          return label && label.textContent.trim() === '通过';
-        });
-        if (passRadio) passRadio.click();
-
-        for (const ta of document.querySelectorAll('textarea')) {
-          if (ta.offsetParent !== null && ta.offsetHeight > 0) {
-            ta.value = '';
-            ta.dispatchEvent(new Event('input', { bubbles: true }));
-            ta.dispatchEvent(new Event('change', { bubbles: true }));
+        // 策略0: 在主文档中查找取消按钮
+        const mainButtons = document.querySelectorAll('button, input[type="button"]');
+        for (const btn of mainButtons) {
+          const text = btn.textContent?.trim() || btn.value;
+          if ((text === '取消' || text === '关闭') && btn.offsetParent !== null) {
+            btn.click();
+            return { success: true, strategy: 'main' };
           }
         }
-        return { success: true, restored: true };
+
+        // 策略1: 在 iframe 中查找取消按钮
+        const iframes = Array.from(document.querySelectorAll('iframe'));
+        for (const iframe of iframes) {
+          try {
+            const doc = iframe.contentDocument || iframe.contentWindow.document;
+            const cancelBtn = Array.from(doc.querySelectorAll('button, a, span, div'))
+              .find(el => {
+                const t = el.textContent?.trim();
+                return (t === '取消' || t === '关闭') && el.offsetParent !== null;
+              });
+            if (cancelBtn) {
+              cancelBtn.click();
+              return { success: true, strategy: 'iframe' };
+            }
+          } catch (e) {}
+        }
+
+        // 策略2: 降级查找任何可点击元素
+        const allElements = document.querySelectorAll('div, button, a, span');
+        for (const el of allElements) {
+          const t = el.textContent?.trim();
+          if ((t === '取消' || t === '关闭') && el.offsetParent !== null) {
+            el.click();
+            return { success: true, strategy: 'fallback' };
+          }
+        }
+
+        return { success: true, strategy: 'none', info: '无取消按钮可点击' };
       })()
     `;
-    return this.eval(js, { timeout: 10000 });
+
+    const result = this.eval(cancelJs, { timeout: 15000 });
+    return result;
   }
 
   /**
    * 执行审批操作
-   * @param {string} action - 审批动作：通过/驳回/转办
+   * @param {string} action - 审批动作 ("通过" | "驳回" | "转办")
    * @param {string} comment - 审批意见
    * @param {Object} options - 选项
    *   @param {boolean} options.submit - 是否真实提交（默认 true）
-   *   @param {boolean} options.debug - 是否输出调试日志
-   *   @param {string} options.rejectNode - 驳回目标节点名称
-   *   @param {string} options.transferTo - 转办目标人员姓名
+   *   @param {boolean} options.debug - 是否输出调试日志（默认 false）
+   *   @param {string} options.transferTo - 转办人员姓名（转办时必填）
+   * @returns {Promise<{success: boolean, action: string, comment?: string}>}
    */
   async approve(action, comment, options = {}) {
-    const { submit = true, debug = this.debug } = options;
+    const { submit = true, debug = this.debug, transferTo } = options;
 
-    if (debug) console.log(`[WorkflowV2] 开始审批: ${action}`);
+    if (debug) console.log(`[WorkflowApprovalV2] 开始审批: ${action}`);
 
-    // 步骤1：检查页面状态
-    if (!this.isApprovable()) {
-      throw new Error('页面不可审批（未找到提交按钮或操作选项）');
-    }
-    if (debug) console.log('  ✓ 页面状态检查通过');
+    // 步骤1: 选择审批动作（通过/驳回/转办）
+    if (debug) console.log(`  → 选择审批动作: ${action}`);
 
-    // 步骤2：选择操作类型
-    const selectResult = this.selectAction(action);
-    if (!this._checkSuccess(selectResult)) {
-      throw new Error(`选择操作失败: ${action}`);
-    }
+    const actionResult = this._clickActionRadio(action);
+    const actionStrategyMatch = actionResult?.match?.(/"strategy":\s*"([^"]+)"/);
+    const actionStrategy = actionStrategyMatch?.[1] || 'unknown';
+
     if (debug) {
-      const m = selectResult.match(/"strategy"\s*:\s*"([^"]+)"/);
-      console.log(`  ✓ 已选择操作: ${action} (策略: ${m?.[1] || 'unknown'})`);
+      console.log(`  ✓ 已选择审批动作: ${action} (策略: ${actionStrategy})`);
     }
 
     await this.sleep(CONFIG.delays.afterClick);
 
-    // 步骤3：驳回时选择目标节点
+    // 步骤2: 根据动作类型执行特定操作
     if (action === '驳回') {
-      const rejectResult = this.selectRejectNode(options.rejectNode || '');
-      if (this._checkSuccess(rejectResult)) {
-        if (debug) {
-          const nm = rejectResult.match(/"selectedNode"\s*:\s*"([^"]+)"/);
-          console.log(`  ✓ 已选择驳回节点: ${nm?.[1] || 'default'}`);
-        }
-      } else if (debug) {
-        console.log('  ⚠ 驳回节点选择可能失败');
-      }
-      await this.sleep(CONFIG.delays.afterClick);
-    }
+      // 驳回: 等待界面选择起草节点
+      if (debug) console.log('  → 等待起草节点选择...');
 
-    // 步骤4：转办时选择转办人员
-    if (action === '转办' && options.transferTo) {
-      if (debug) console.log(`  → 搜索转办人员: ${options.transferTo}`);
-      await this.sleep(CONFIG.delays.afterClick);
-      this.selectTransferPerson(options.transferTo);
-      await this.sleep(CONFIG.delays.afterClick);
+      const nodeResult = this._selectDraftNode();
+      const nodeStrategyMatch = nodeResult?.match?.(/"strategy":\s*"([^"]+)"/);
+      const nodeStrategy = nodeStrategyMatch?.[1] || 'unknown';
+      const selectedNodeMatch = nodeResult?.match?.(/"selectedNode":\s*"([^"]+)"/);
 
-      // 验证转办人员是否已填入
-      const verifyJs = `
-        (() => {
-          const inp = document.querySelector('#toOtherHandlerNames');
-          return { success: true, value: inp?.value || '' };
-        })()
-      `;
-      const verifyResult = this.eval(verifyJs, { timeout: 5000 });
-      const valueMatch = verifyResult?.match(/"value"\s*:\s*"([^"]+)"/);
       if (debug) {
-        console.log(`  ✓ 转办人员已填入: ${valueMatch?.[1] || 'unknown'}`);
+        console.log(`  ✓ 已选择起草节点: ${selectedNodeMatch?.[1] || 'default'} (策略: ${nodeStrategy})`);
       }
+
+      await this.sleep(CONFIG.delays.afterClick);
     }
 
-    // 步骤5：填写处理意见
-    if (comment) {
-      const commentResult = this.fillComment(comment);
-      if (this._checkSuccess(commentResult)) {
-        if (debug) {
-          const m = commentResult.match(/"strategy"\s*:\s*"([^"]+)"/);
-          console.log(`  ✓ 已填写审批意见 (策略: ${m?.[1] || 'unknown'})`);
-        }
-      } else if (action === '驳回') {
-        throw new Error('驳回操作必须填写意见，但填写意见失败');
-      } else if (debug) {
-        console.log('  ⚠ 填写意见可能失败');
+    if (action === '转办') {
+      // 转办: 选择转办人员
+      if (!transferTo) {
+        throw new Error('转办操作必须指定转办人员 (options.transferTo)');
       }
-      await this.sleep(CONFIG.delays.afterInput);
-    } else if (action === '驳回') {
-      throw new Error('驳回操作必须填写意见');
+
+      if (debug) console.log(`  → 选择转办人员: ${transferTo}`);
+
+      // 点击转办人员输入框触发地址本弹窗
+      this._clickTransferInput();
+      if (debug) console.log('  ✓ 已点击转办人员输入框');
+
+      await this.sleep(CONFIG.delays.afterClick);
+
+      // 在弹窗中搜索并选择人员
+      const personResult = this._selectTransferPerson(transferTo);
+      const personStrategyMatch = personResult?.match?.(/"strategy":\s*"([^"]+)"/);
+
+      if (debug) {
+        console.log(`  ✓ 已选择转办人员: ${transferTo} (策略: ${personStrategyMatch?.[1] || 'unknown'})`);
+      }
+
+      // 弹窗自动关闭
+      await this.sleep(CONFIG.delays.afterClick);
     }
 
-    // 步骤6：提交或恢复状态
+    // 步骤3: 填写处理意见
+    const defaultComment = action === '通过' ? '同意' : action === '驳回' ? '不同意' : '转办处理';
+    const commentToUse = comment || defaultComment;
+
+    if (debug) console.log(`  → 填写处理意见: ${commentToUse}`);
+
+    const fillResult = this._fillComment(commentToUse);
+    const fillStrategyMatch = fillResult?.match?.(/"strategy":\s*"([^"]+)"/);
+
+    if (debug) {
+      console.log(`  ✓ 已填写处理意见: ${commentToUse} (策略: ${fillStrategyMatch?.[1] || 'unknown'})`);
+    }
+
+    await this.sleep(CONFIG.delays.afterInput);
+
+    // 步骤4: 点击提交或取消
     if (submit) {
       if (debug) console.log('  → 点击提交按钮...');
-      const submitResult = this.clickSubmit();
-      if (!this._checkSuccess(submitResult)) {
-        throw new Error('未找到提交按钮');
-      }
+
+      const submitResult = this._clickSubmit();
+      const submitStrategyMatch = submitResult?.match?.(/"strategy":\s*"([^"]+)"/);
+
       if (debug) {
-        const m = submitResult.match(/"strategy"\s*:\s*"([^"]+)"/);
-        console.log(`  ✓ 已点击提交按钮 (策略: ${m?.[1] || 'unknown'})`);
+        console.log(`  ✓ 已点击提交按钮 (策略: ${submitStrategyMatch?.[1] || 'unknown'})`);
+
+        // 输出按钮调试信息
+        try {
+          const tagNameMatch = submitResult.match(/"tagName":\s*"([^"]+)"/);
+          const classNameMatch = submitResult.match(/"className":\s*"([^"]+)"/);
+          if (tagNameMatch || classNameMatch) {
+            console.log(`    [按钮信息]`);
+            if (tagNameMatch) console.log(`      tagName: ${tagNameMatch[1]}`);
+            if (classNameMatch) console.log(`      className: ${classNameMatch[1]}`);
+          }
+        } catch (e) {}
       }
     } else {
-      if (debug) console.log('  → 测试模式：恢复状态...');
-      this.restoreState();
-      if (debug) console.log('  ✓ 已恢复初始状态');
+      if (debug) console.log('  → 点击取消按钮（测试模式）...');
+
+      const cancelResult = this._clickCancel();
+      const cancelStrategyMatch = cancelResult?.match?.(/"strategy":\s*"([^"]+)"/);
+
+      if (debug) {
+        console.log(`  ✓ 已点击取消按钮 (策略: ${cancelStrategyMatch?.[1] || 'none'})`);
+      }
     }
 
     await this.waitForLoad();
-    return { success: true, action, comment };
+
+    return {
+      success: true,
+      action,
+      comment: commentToUse,
+      transferTo: action === '转办' ? transferTo : undefined
+    };
   }
 }
 

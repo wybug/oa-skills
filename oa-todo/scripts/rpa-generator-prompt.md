@@ -1258,6 +1258,36 @@ grep -n "\.find(" <类型>ApprovalTest.js
 
 ## 测试脚本规则
 
+### 0. 导入规则
+
+**测试脚本必须从对应的审批脚本模块导入 CONFIG 和 Helper 类，不要直接从 approvalHelper 导入。** 这样确保测试脚本和审批脚本使用同一份 CONFIG 实例。
+
+```javascript
+// ✅ 正确：从对应的审批脚本导入
+const { WorkflowApprovalV2Helper, CONFIG } = require('./workflowApprovalV2');
+
+// ❌ 错误：直接从 approvalHelper 导入 CONFIG
+const { ApprovalHelper, CONFIG } = require('./approvalHelper');
+
+// ❌ 错误：重复导入或别名冲突
+const { WorkflowApprovalHelperV2, CONFIG } = require('./workflowApprovalV2');
+const { WorkflowApprovalHelperV2: CONFIG } = require('./workflowApprovalV2'); // CONFIG 重复声明
+```
+
+**使用方式：通过 helper 实例调用方法，通过 CONFIG 访问延迟配置。**
+
+```javascript
+const helper = new WorkflowApprovalV2Helper(sessionId, { debug: isDebugMode });
+
+// 通过 helper 实例调用方法
+const result = helper.eval(jsCode);
+helper._checkSuccess(result);
+
+// 通过 CONFIG 访问延迟配置
+await helper.sleep(CONFIG.delays.afterClick);
+await helper.sleep(CONFIG.delays.afterInput);
+```
+
 ### 1. 接收参数
 
 ```javascript
