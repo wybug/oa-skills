@@ -91,6 +91,22 @@ const strategy = strategyMatch?.[1] || 'unknown';
 #### 5. （可选）其他操作
 是否有其他操作类型？如"转办"、"通过"等
 
+**关于"转办"操作的特别说明：**
+
+如果审批类型支持"转办"操作，必须额外确认以下信息：
+
+1. **转办人员选择方式** - 转办人员如何选择？
+   - 例如：点击输入框弹出地址本弹窗，在弹窗中搜索并选择人员
+   - 例如：在当前页面直接输入人员姓名
+   - 例如：从下拉列表中选择人员
+
+2. **测试用的转办人员姓名** - 提供一个可用于测试的转办人员姓名
+
+3. **转办失败处理** - 如果无法找到转办人员，审批应该终止并报错
+   - 必须关闭可能残留的弹窗（如地址本弹窗）
+   - 必须抛出明确的错误信息（如：`转办人员选择失败，未找到: XXX，审批已终止`）
+   - 错误信息应包含未找到的人员姓名，便于排查
+
 #### 6. （探索后自动触发）按钮类型确认
 
 **重要警告：** 页面上的按钮可能有不同的 HTML 元素类型（SPAN、BUTTON、DIV 等）。如果选错了按钮类型，会导致 UI 交互失败。
@@ -1038,6 +1054,132 @@ const findInIframeJs = `
 - EHR 审批页面的对话框通常在 `#popup_xxx` iframe 中
 - 费用报销、会议邀请也可能使用 iframe
 - 先遍历 iframe，找不到再降级到主文档
+
+### 模式 6: 转办人员选择（地址本弹窗）
+
+适用于：转办操作需要从地址本弹窗中选择人员
+
+**转办流程**：
+1. 选中"转办" radio → 页面出现转办人员输入框
+2. 点击转办人员输入框（通常是 readOnly）→ 弹出地址本 iframe
+3. 在 iframe 中搜索人员姓名 → 点击匹配的列表项
+4. 弹窗自动关闭，输入框填入人员姓名
+
+```javascript
+// 转办人员选择模板（完整流程）
+async function selectTransferPerson(personName) {
+  // 步骤1: 点击转办人员输入框触发地址本弹窗
+  const triggerJs = `
+    (() => {
+      const inp = document.querySelector('#toOtherHandlerNames, input[readonly]');
+      if (inp) {
+        inp.click();
+        inp.focus();
+        return { success: true, triggered: true };
+      }
+      return { success: false, error: '未找到转办人员输入框' };
+    })()
+  `;
+  const triggerResult = this.eval(triggerJs, { timeout: 10000 });
+  if (!this._checkSuccess(triggerResult)) {
+    throw new Error('转办人员输入框点击失败');
+  }
+
+  // 步骤2: 在地址本 iframe 中搜索并选择人员
+  await this.sleep(CONFIG.delays.afterClick);
+
+  const searchAndSelectJs = `
+    (() => {
+      const personName = ${JSON.stringify(personName)};
+      const iframes = Array.from(document.querySelectorAll('iframe'));
+      for (const iframe of iframes) {
+        if (!iframe.src || !iframe.src.includes('address_main')) continue;
+        try {
+          const doc = iframe.contentDocument || iframe.contentWindow.document;
+
+          // 查找搜索输入框
+          let searchInput = null;
+          const inputs = doc.querySelectorAll('input[type="text"], input:not([type])');
+          for (const inp of inputs) {
+            if (inp.offsetParent !== null) { searchInput = inp; break; }
+          }
+
+          if (searchInput) {
+            searchInput.value = personName;
+            searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+            searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+            searchInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+          }
+
+          // 查找并点击匹配人员
+          const items = doc.querySelectorAll('LI');
+          for (const item of items) {
+            if (item.offsetParent !== null && item.textContent.includes(personName)) {
+              item.click();
+              return { success: true, selectedPerson: personName, strategy: 'liClick' };
+            }
+          }
+
+          return { success: false, error: '未找到人员: ' + personName };
+        } catch(e) {}
+      }
+      return { success: false, error: '地址本弹窗未出现' };
+    })()
+  `;
+  const result = this.eval(searchAndSelectJs, { timeout: 15000 });
+
+  // 步骤3: 处理结果
+  if (!this._checkSuccess(result)) {
+    // 关键：找不到转办人时，必须关闭弹窗再抛出错误终止审批
+    this._closeAddressBook();
+    throw new Error('转办人员选择失败，未找到: ' + personName + '，审批已终止');
+  }
+
+  // 步骤4: 关闭可能残留的弹窗
+  this._closeAddressBook();
+  return result;
+}
+```
+
+**转办失败处理规则（强制）：**
+
+```javascript
+// ❌ 禁止：找不到转办人时静默继续
+if (!this._checkSuccess(selectResult)) {
+  console.log('转办人员未找到，跳过');  // 错误！
+}
+
+// ✅ 正确：关闭弹窗后抛出错误终止审批
+if (!this._checkSuccess(selectResult)) {
+  this._closeAddressBook();  // 先关闭弹窗
+  throw new Error(`转办人员选择失败，未找到: ${personName}，审批已终止`);
+}
+```
+
+**关闭地址本弹窗模板：**
+```javascript
+_closeAddressBook() {
+  const closeJs = `
+    (() => {
+      const iframes = Array.from(document.querySelectorAll('iframe'));
+      for (const iframe of iframes) {
+        if (!iframe.src || !iframe.src.includes('address_main')) continue;
+        try {
+          const doc = iframe.contentDocument || iframe.contentWindow.document;
+          const closeBtn = Array.from(doc.querySelectorAll('button, a, span, div'))
+            .find(el => ['关闭', '取消', '×'].includes(el.textContent?.trim()));
+          if (closeBtn && closeBtn.offsetParent !== null) {
+            closeBtn.click();
+            return { success: true, closed: true };
+          }
+        } catch(e) {}
+      }
+      return { success: true, info: '无需关闭' };
+    })()
+  `;
+  this.eval(closeJs, { timeout: 5000 });
+}
+```
 
 ### 输入框查找模板
 

@@ -19,7 +19,7 @@ const log = Logger.getLogger('approve');
 const { EHRApprovalHelperV2 } = require('../../scripts/ehrApprovalV2');
 const { MeetingApprovalHelper } = require('../../scripts/meetingApproval');
 const { ExpenseApprovalHelper } = require('../../scripts/expenseApproval');
-const { WorkflowApprovalHelper } = require('../../scripts/workflowApproval');
+const { WorkflowApprovalV2Helper } = require('../../scripts/workflowApprovalV2');
 
 /**
  * EHR 审批函数
@@ -89,16 +89,21 @@ async function approveExpense(fdId, action, comment, options = {}) {
  * 通用流程审批函数
  */
 async function approveWorkflow(fdId, action, comment, options = {}) {
-  const { db, browser, debugMode = false } = options;
+  const { db, browser, debugMode = false, transferTo } = options;
 
-  const helper = new WorkflowApprovalHelper(browser.session, {
+  const helper = new WorkflowApprovalV2Helper(browser.session, {
     debug: debugMode
   });
 
-  const result = await helper.approve(action, comment, {
+  const approveOptions = {
     submit: true,
     debug: debugMode
-  });
+  };
+  if (action === '转办' && transferTo) {
+    approveOptions.transferTo = transferTo;
+  }
+
+  const result = await helper.approve(action, comment, approveOptions);
 
   const newStatus = ACTION_TO_STATUS[action];
   await db.updateStatus(fdId, newStatus, action, comment);
@@ -370,7 +375,8 @@ async function approve(fdId, action, options) {
         await approveWorkflow(fdId, action, options.comment, {
           db: db,
           browser: browser,
-          debugMode: isDebugMode
+          debugMode: isDebugMode,
+          transferTo: options.transferTo
         });
         log.info('Approval result', { fdId, type: 'workflow', action, status: ACTION_TO_STATUS[action] });
       } else {

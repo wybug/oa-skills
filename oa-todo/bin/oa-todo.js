@@ -11,6 +11,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { PATHS, ensureDirectories, getLegacyConfig } = require('../src/lib/paths');
+const Logger = require('../src/lib/logger');
 
 // 设置版本
 const packageJson = require('../package.json');
@@ -30,6 +31,12 @@ program
   .description('新国都OA系统待办管理工具')
   .hook('preAction', () => {
     ensureDirs();
+    // 初始化日志（从全局选项获取 debug）
+    const globalOpts = program.opts();
+    Logger.init({
+      debug: globalOpts.debug || false,
+      logDir: PATHS.logsDir
+    });
   });
 
 // 全局 debug 选项（所有命令通用）
@@ -182,6 +189,7 @@ program
   .option('--force', '强制执行（不确认）', false)
   .option('--delay <seconds>', '成功后延迟关闭窗口时间（秒）', parseInt, 3)
   .option('--skip-status-check', '跳过本地状态检查', false)
+  .option('--transfer-to <name>', '转办目标人员姓名')
   .action(async (fdId, action, options) => {
     const approve = require('../src/commands/approve');
     const mergedOptions = {
