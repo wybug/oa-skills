@@ -26,6 +26,8 @@ const fsPromises = require('fs').promises;
 const path = require('path');
 const chalk = require('chalk');
 const { generateSessionId, SessionType } = require('./session-naming');
+const logger = require('./logger');
+const log = logger.getLogger('pool');
 
 class BrowserPool {
   /**
@@ -50,6 +52,11 @@ class BrowserPool {
   async initialize() {
     const Browser = require('./browser');
 
+    log.info('Pool initializing', {
+      instanceCount: this.instanceCount,
+      tabsPerInstance: this.tabsPerInstance
+    });
+
     // 并发初始化所有实例
     const initPromises = [];
     for (let i = 0; i < this.instanceCount; i++) {
@@ -62,8 +69,18 @@ class BrowserPool {
     // 检查是否有失败的实例
     const failedInstances = results.filter(r => !r.success);
     if (failedInstances.length > 0) {
+      log.error('Pool initialization failed', {
+        failedCount: failedInstances.length,
+        failures: failedInstances.map(r => ({ index: r.index, error: r.error }))
+      });
       throw new Error(`${failedInstances.length} 个实例初始化失败`);
     }
+
+    log.info('Pool initialized', {
+      instanceCount: this.instanceCount,
+      tabsPerInstance: this.tabsPerInstance,
+      sessions: results.map(r => ({ index: r.index, sessionId: r.sessionId }))
+    });
   }
 
   /**
@@ -78,6 +95,8 @@ class BrowserPool {
     const sessionId = generateSessionId(SessionType.POOL, { context: String(index) });
     browser.session = sessionId;
 
+    log.info('Instance initializing', { index, sessionId });
+
     try {
       await browser.loadState();
       // 等待页面稳定
@@ -88,6 +107,8 @@ class BrowserPool {
       if (this.debug) {
         console.log(chalk.gray(`[Pool] 实例 ${index} 初始化完成，会话: ${sessionId}, tabs: [${tabs.join(', ')}]`));
       }
+
+      log.info('Instance initialized', { index, sessionId, tabCount: tabs.length });
 
       // 存储到实例数组
       this.instances[index] = {
@@ -100,6 +121,7 @@ class BrowserPool {
       return { success: true, index, sessionId };
     } catch (error) {
       console.error(chalk.red(`[Pool] 实例 ${index} 初始化失败: ${error.message}`));
+      log.error('Instance initialization failed', { index, sessionId, error: error.message });
       return { success: false, index, error: error.message };
     }
   }
@@ -119,6 +141,16 @@ class BrowserPool {
     const chunks = this._chunkArray(todos, this.tabsPerInstance);
     const instanceChunks = this._distributeChunks(chunks);
 
+    log.info('Processing todos', {
+      totalTodos: todos.length,
+      totalChunks: chunks.length,
+      instanceCount: this.instanceCount,
+      distribution: instanceChunks.map((chunkIndices, i) => ({
+        instance: i,
+        batches: chunkIndices.length
+      }))
+    });
+
     if (this.debug) {
       console.log(chalk.gray(`[Pool] 分配策略: ${this.instanceCount}个实例, ${chunks.length}个批次`));
       instanceChunks.forEach((chunkIndices, i) => {
@@ -133,7 +165,17 @@ class BrowserPool {
       )
     );
 
-    return results.flat();
+    const flatResults = results.flat();
+    const successCount = flatResults.filter(r => r.success).length;
+    const failCount = flatResults.filter(r => !r.success).length;
+
+    log.info('All instances completed', {
+      total: flatResults.length,
+      success: successCount,
+      failed: failCount
+    });
+
+    return flatResults;
   }
 
   /**
@@ -183,6 +225,13 @@ class BrowserPool {
     let reusedTabs = null; // 存储复用的tab索引
     const batchDbUpdates = []; // 收集数据库更新
 
+    const totalTodos = chunkIndices.reduce((sum, ci) => sum + allChunks[ci].length, 0);
+    log.info('Instance processing started', {
+      instanceId: id,
+      totalBatches: chunkIndices.length,
+      totalTodos
+    });
+
     if (this.debug) {
       console.log(chalk.gray(`[Pool-${id}] 开始处理 ${chunkIndices.length} 个批次`));
     }
@@ -190,6 +239,14 @@ class BrowserPool {
     for (let i = 0; i < chunkIndices.length; i++) {
       const chunkIndex = chunkIndices[i];
       const chunk = allChunks[chunkIndex];
+
+      log.info('Batch processing started', {
+        instanceId: id,
+        batch: `${i + 1}/${chunkIndices.length}`,
+        todosInBatch: chunk.length,
+        completedSoFar: results.length,
+        remaining: totalTodos - results.length
+      });
 
       if (this.debug) {
         console.log(chalk.gray(`[Pool-${id}] 处理批次 ${i + 1}/${chunkIndices.length} (${chunk.length}个待办)`));
@@ -209,15 +266,40 @@ class BrowserPool {
           console.log(chalk.gray(`[Pool-${id}] 保存 tab 索引供复用: [${tabIndices.join(', ')}]`));
         }
       }
+
+      const batchSuccessCount = chunkResults.filter(r => r.success).length;
+      const batchFailCount = chunkResults.filter(r => !r.success).length;
+      log.info('Batch processing completed', {
+        instanceId: id,
+        batch: `${i + 1}/${chunkIndices.length}`,
+        success: batchSuccessCount,
+        failed: batchFailCount,
+        progress: `${results.length}/${totalTodos}`
+      });
     }
 
     // 批量更新数据库
     if (batchDbUpdates.length > 0) {
+      log.info('Batch DB update started', {
+        instanceId: id,
+        updateCount: batchDbUpdates.length
+      });
       if (this.debug) {
         console.log(chalk.gray(`[Pool-${id}] 批量更新数据库: ${batchDbUpdates.length} 条`));
       }
       await this._batchUpdateDatabase(db, batchDbUpdates);
+      log.info('Batch DB update completed', {
+        instanceId: id,
+        updateCount: batchDbUpdates.length
+      });
     }
+
+    log.info('Instance processing completed', {
+      instanceId: id,
+      totalProcessed: results.length,
+      success: results.filter(r => r.success).length,
+      failed: results.filter(r => !r.success).length
+    });
 
     return results;
   }
@@ -616,11 +698,23 @@ class BrowserPool {
     const pathUpdates = updates.filter(u => u.detailPath);
     const statusUpdates = updates.filter(u => !u.isApprovable);
 
+    log.info('Batch DB update executing', {
+      totalUpdates: updates.length,
+      pathUpdates: pathUpdates.length,
+      statusUpdates: statusUpdates.length
+    });
+
     // 批量更新路径
     for (const update of pathUpdates) {
       if (this.debug) {
         console.log(chalk.gray(`[DEBUG] updateDetailPaths: fdId=${update.fdId}, detailPath=${update.detailPath}, snapshotPath=${update.snapshotPath}, screenshotPath=${update.screenshotPath}`));
       }
+      log.debug('Updating detail paths', {
+        fdId: update.fdId,
+        detailPath: update.detailPath,
+        snapshotPath: update.snapshotPath,
+        screenshotPath: update.screenshotPath
+      });
       await db.updateDetailPaths(
         update.fdId,
         update.detailPath,
@@ -631,8 +725,17 @@ class BrowserPool {
 
     // 批量更新状态
     for (const update of statusUpdates) {
+      log.debug('Updating status to skip', {
+        fdId: update.fdId,
+        skipReason: update.skipReason
+      });
       await db.updateStatus(update.fdId, 'skip', 'sync', update.skipReason);
     }
+
+    log.info('Batch DB update finished', {
+      pathUpdatesCompleted: pathUpdates.length,
+      statusUpdatesCompleted: statusUpdates.length
+    });
   }
 
   /**

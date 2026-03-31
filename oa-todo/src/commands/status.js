@@ -6,8 +6,12 @@ const chalk = require('chalk');
 const Table = require('cli-table3');
 const Database = require('../lib/database');
 const { STATUS_NAMES, TYPE_NAMES } = require('../config');
+const Logger = require('../lib/logger');
+const log = Logger.getLogger('status');
 
 async function status(options) {
+  log.info('Status started', { byType: options.byType, byStatus: options.byStatus, byDate: options.byDate });
+
   try {
     // 初始化数据库
     const db = new Database(options.config.dbPath);
@@ -15,7 +19,8 @@ async function status(options) {
     
     // 获取统计信息
     const stats = await db.getStats();
-    
+    log.info('Status completed', { total: stats.total });
+
     await db.close();
     
     // 显示总体统计
@@ -105,6 +110,7 @@ async function status(options) {
     console.log('');
     
   } catch (error) {
+    log.error('Status failed', { error: error.message });
     console.error(chalk.red('错误:'), error.message);
     process.exit(1);
   }

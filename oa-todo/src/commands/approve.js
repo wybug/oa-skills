@@ -12,6 +12,8 @@ const PauseManager = require('../lib/pause-manager');
 const { validateAction, getValidActions } = require('../lib/detector');
 const { ACTION_TO_STATUS, STATUS_NAMES, TYPE_NAMES } = require('../config');
 const { generateSessionId, SessionType } = require('../lib/session-naming');
+const Logger = require('../lib/logger');
+const log = Logger.getLogger('approve');
 
 // 导入审批助手类
 const { EHRApprovalHelperV2 } = require('../../scripts/ehrApprovalV2');
@@ -106,6 +108,7 @@ async function approveWorkflow(fdId, action, comment, options = {}) {
 
 async function approve(fdId, action, options) {
   const spinner = ora('正在处理审批...').start();
+  log.info('Appro started', { fdId, action });
 
   // 声明在外部以便catch块访问
   let db = null;
@@ -123,6 +126,7 @@ async function approve(fdId, action, options) {
     todo = await db.getTodo(fdId);
 
     if (!todo) {
+      log.warn('Todo not found', { fdId });
       spinner.fail(`未找到待办: ${fdId}`);
       console.log(chalk.yellow('\n请先同步待办: oa-todo sync'));
       await db.close();
@@ -142,6 +146,7 @@ async function approve(fdId, action, options) {
       const existing = await pauseManager.get(fdId);
       if (existing) {
         await pauseManager.update(fdId); // 续期
+        log.info('Pause checkpoint renewed', { fdId, session: existing.session });
         // 输出简洁的状态（JSON 格式）
         console.log(JSON.stringify({
           status: 'checkpoint_renewed',
@@ -191,6 +196,7 @@ async function approve(fdId, action, options) {
 
       // 保存断点信息（不关闭浏览器）
       await pauseManager.create(fdId, todo, browser.session, timeout);
+      log.info('Pause checkpoint created', { fdId, session: browser.session, timeout });
 
       // 输出简洁的状态（JSON 格式，适合智能体解析）
       // 注意：不输出 url，避免智能体尝试直接访问页面
@@ -231,6 +237,7 @@ async function approve(fdId, action, options) {
 
     // 检查本地状态
     if (!options.skipStatusCheck && todo.status !== 'pending') {
+      log.warn('Todo status check failed', { fdId, status: todo.status });
       spinner.fail(`该待办当前状态为「${STATUS_NAMES[todo.status] || todo.status}」，无法审批`);
       console.log(chalk.gray('\n提示: 使用 --skip-status-check 可跳过此检查'));
       console.log(chalk.gray(`       当前状态: ${todo.status}`));
@@ -344,24 +351,28 @@ async function approve(fdId, action, options) {
           browser: browser,
           debugMode: isDebugMode
         });
+        log.info('Approval result', { fdId, type: 'meeting', action, status: ACTION_TO_STATUS[action] });
       } else if (todo.todo_type === 'ehr') {
         await approveEhr(fdId, action, options.comment, {
           db: db,
           browser: browser,
           debugMode: isDebugMode
         });
+        log.info('Approval result', { fdId, type: 'ehr', action, status: ACTION_TO_STATUS[action] });
       } else if (todo.todo_type === 'expense') {
         await approveExpense(fdId, action, options.comment, {
           db: db,
           browser: browser,
           debugMode: isDebugMode
         });
+        log.info('Approval result', { fdId, type: 'expense', action, status: ACTION_TO_STATUS[action] });
       } else if (todo.todo_type === 'workflow') {
         await approveWorkflow(fdId, action, options.comment, {
           db: db,
           browser: browser,
           debugMode: isDebugMode
         });
+        log.info('Approval result', { fdId, type: 'workflow', action, status: ACTION_TO_STATUS[action] });
       } else {
         spinner.fail(`不支持的待办类型: ${todo.todo_type}`);
         await browser.close();
@@ -378,6 +389,7 @@ async function approve(fdId, action, options) {
         if (snapshot.includes('已召开') || snapshot.includes('已处理') ||
             snapshot.includes('已完成') || snapshot.includes('您的操作已成功')) {
           spinner.warn('该待办已在OA系统中处理完成');
+          log.info('Todo already processed in OA system', { fdId, action });
           // 更新数据库状态为 skip
           await db.updateStatus(fdId, 'skip', action, '后台已处理，无法再次审批');
           await browser.close();
@@ -416,7 +428,8 @@ async function approve(fdId, action, options) {
 
     await browser.close();
     await db.close();
-    
+
+    log.info('Approval completed', { fdId, action, newStatus });
     spinner.succeed('审批完成！');
 
     console.log(chalk.bold.green('\n✅ 审批成功'));
@@ -431,6 +444,7 @@ async function approve(fdId, action, options) {
     }
     
   } catch (error) {
+    log.error('Approval failed', { fdId, action, error: error.message });
     spinner.fail('审批失败');
     console.error(chalk.red('\n错误:'), error.message);
 

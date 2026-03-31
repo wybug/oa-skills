@@ -6,8 +6,12 @@ const chalk = require('chalk');
 const Table = require('cli-table3');
 const Database = require('../lib/database');
 const { STATUS_NAMES, TYPE_NAMES, STATUS_COLORS } = require('../config');
+const Logger = require('../lib/logger');
+const log = Logger.getLogger('list');
 
 async function list(options) {
+  log.info('List started', { status: options.status, type: options.type, all: options.all });
+
   try {
     // 初始化数据库
     const db = new Database(options.config.dbPath);
@@ -39,7 +43,8 @@ async function list(options) {
     
     // 获取待办列表
     const todos = await db.getTodos(filters);
-    
+    log.info('List completed', { count: todos.length });
+
     await db.close();
     
     if (todos.length === 0) {
@@ -93,6 +98,7 @@ async function list(options) {
 
 
   } catch (error) {
+    log.error('List failed', { error: error.message });
     console.error(chalk.red('错误:'), error.message);
     process.exit(1);
   }

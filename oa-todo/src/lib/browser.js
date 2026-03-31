@@ -8,6 +8,8 @@ const path = require('path');
 const { generateClientCode, breakpoint } = require('./web-extractor');
 const { PATHS } = require('./paths');
 const { generateSessionId, SessionType } = require('./session-naming');
+const logger = require('./logger');
+const log = logger.getLogger('browser');
 
 class Browser {
   constructor(config, options = {}) {
@@ -22,6 +24,7 @@ class Browser {
       this.agentBrowser = `npx agent-browser --cdp "${this.cdpUrl}"`;
       this.headedMode = true;
       if (this.debugMode) console.log('🔗 CDP模式：使用外部Chrome会话');
+      log.info('Browser initialized in CDP mode', { cdpUrl: this.cdpUrl });
     } else {
       // 普通模式：原有逻辑完全不变
       this.headedMode = this._getDefaultHeadedMode();
@@ -34,13 +37,14 @@ class Browser {
         try {
           execSync('npx agent-browser close', { timeout: 5000, stdio: 'ignore' });
         } catch (e) {
-          // 忽略
+          log.debug('agent-browser close ignored (no existing daemon)', { error: e.message });
         }
       }
 
       // 根据 headedMode 构建命令（与 debugMode 解耦）
       const headedFlag = this.headedMode ? '--headed' : '';
       this.agentBrowser = `npx agent-browser ${headedFlag}`.trim();
+      log.info('Browser initialized', { headed: this.headedMode, reuse: this.reuseMode });
     }
 
     this.session = options.session || generateSessionId(SessionType.DEFAULT);
@@ -49,6 +53,7 @@ class Browser {
       errors: [],
       snapshots: []
     };
+    log.info('Browser session created', { session: this.session });
   }
 
   // 从环境变量获取浏览器模式（由 daemon 命令设置）
@@ -83,6 +88,8 @@ class Browser {
       });
     }
 
+    log.debug('exec command', { args: args.substring(0, 200), timeout: options.timeout || 60000 });
+
     try {
       const result = execSync(cmd, {
         encoding: 'utf-8',
@@ -90,17 +97,22 @@ class Browser {
         maxBuffer: options.maxBuffer || 20 * 1024 * 1024
       });
 
+      const duration = Date.now() - startTime;
+
       if (this.debugMode) {
         this.debugInfo.commands[this.debugInfo.commands.length - 1].result = {
           success: true,
-          duration: Date.now() - startTime,
+          duration,
           outputLength: result ? result.length : 0
         };
       }
 
+      log.debug('exec completed', { args: args.substring(0, 200), duration, outputLength: result ? result.length : 0 });
+
       return result;
     } catch (error) {
       // 记录错误信息
+      const duration = Date.now() - startTime;
       const errorInfo = {
         command: cmd,
         args: args,
@@ -109,7 +121,7 @@ class Browser {
         stdout: error.stdout?.toString() || '',
         code: error.status,
         timestamp: new Date().toISOString(),
-        duration: Date.now() - startTime
+        duration
       };
 
       if (this.debugMode) {
@@ -120,6 +132,8 @@ class Browser {
         };
       }
 
+      log.error('exec failed', { args: args.substring(0, 200), duration, code: error.status, error: error.message });
+
       if (error.stdout) return error.stdout;
       throw error;
     }
@@ -127,29 +141,37 @@ class Browser {
 
   async checkLoginValid() {
     if (!fs.existsSync(this.config.stateFile)) {
+      log.info('Login state file not found', { stateFile: this.config.stateFile });
       return { valid: false, reason: '状态文件不存在' };
     }
     const stat = fs.statSync(this.config.stateFile);
     const ageMinutes = (Date.now() - stat.mtime) / 1000 / 60;
     const timeout = this.config.loginTimeout;
     if (ageMinutes > timeout) {
+      log.info('Login state expired', { ageMinutes: Math.floor(ageMinutes), timeout });
       return { valid: false, reason: '已过期', ageMinutes: Math.floor(ageMinutes) };
     }
-    return { valid: true, remaining: Math.floor(timeout - ageMinutes) };
+    const remaining = Math.floor(timeout - ageMinutes);
+    log.info('Login state valid', { remaining, ageMinutes: Math.floor(ageMinutes) });
+    return { valid: true, remaining };
   }
 
   async loadState() {
+    log.info('Loading browser state', { session: this.session, stateFile: this.config.stateFile });
     await this.exec(`--session ${this.session} close`, { timeout: 5000 });
     await this.exec(`--session ${this.session} open "about:blank" --lang=zh-CN --timezone Asia/Shanghai`);
     await this.exec(`--session ${this.session} state load ${this.config.stateFile}`);
     // 添加一个快照操作来稳定页面状态（确保 CDP 会话完全建立）
     await this.snapshot();
+    log.info('Browser state loaded successfully', { session: this.session });
   }
 
   async open(url, waitTimeout) {
+    log.info('Opening URL', { session: this.session, url: url.substring(0, 150) });
     await this.exec(`--session ${this.session} open "${url}" --lang=zh-CN --timezone Asia/Shanghai`);
     // 移动网络可能需要更长的加载时间，默认30秒
     await this.waitForLoad(waitTimeout || 30000);
+    log.debug('URL opened and loaded', { url: url.substring(0, 150) });
   }
 
   async waitForLoad(timeout = 30000) {
@@ -167,11 +189,11 @@ class Browser {
     try {
       const result = await this.exec(`--session ${this.session} eval 'window.location.href'`);
       // 解析输出，移除可能的引号和换行
-      return result.trim().replace(/^['"]|['"]$/g, '');
+      const url = result.trim().replace(/^['"]|['"]$/g, '');
+      log.debug('getCurrentUrl', { url: url.substring(0, 150) });
+      return url;
     } catch (e) {
-      if (this.debugMode) {
-        console.error(`[getCurrentUrl] 错误: ${e.message}`);
-      }
+      log.error('getCurrentUrl failed', { error: e.message });
       throw new Error('无法获取当前URL');
     }
   }
@@ -197,11 +219,10 @@ class Browser {
           tabs.push(parseInt(match[1]));
         }
       }
-      if (this.debugMode) {
-        console.log(`[listTabs] 解析结果: ${tabs.join(', ')}`);
-      }
+      log.debug('listTabs result', { tabs });
       return tabs;
     } catch (e) {
+      log.warn('listTabs failed', { error: e.message });
       if (this.debugMode) {
         console.error(`[listTabs] 错误: ${e.message}`);
       }
@@ -216,6 +237,7 @@ class Browser {
    */
   async openInNewTab(url) {
     try {
+      log.info('Opening URL in new tab', { url: url.substring(0, 150) });
       if (this.debugMode) {
         console.log(`[openInNewTab] 准备打开 URL: ${url}`);
       }
@@ -243,6 +265,7 @@ class Browser {
       // 找出新增加的 tab 索引
       for (const tabIndex of afterTabs) {
         if (!beforeTabs.includes(tabIndex)) {
+          log.info('New tab opened', { tabIndex, url: url.substring(0, 100) });
           if (this.debugMode) {
             console.log(`[openInNewTab] 新 tab 索引: ${tabIndex}`);
           }
@@ -252,6 +275,7 @@ class Browser {
 
       // 如果没找到新 tab（可能 afterTabs 和 beforeTabs 相同），使用第一个 tab
       if (afterTabs.length > 0) {
+        log.warn('No new tab detected, using first tab', { tabIndex: afterTabs[0] });
         if (this.debugMode) {
           console.log(`[openInNewTab] 使用第一个 tab: ${afterTabs[0]}`);
         }
@@ -260,6 +284,7 @@ class Browser {
 
       throw new Error('无法确定新 tab 的索引');
     } catch (e) {
+      log.error('openInNewTab failed', { url: url.substring(0, 100), error: e.message });
       if (this.debugMode) {
         console.error(`[openInNewTab] 错误: ${e.message}`);
       }
@@ -276,11 +301,13 @@ class Browser {
       if (index === null || index === undefined) {
         throw new Error('Tab 索引不能为空');
       }
+      log.debug('Switching to tab', { index });
       if (this.debugMode) {
         console.log(`[switchToTab] 切换到 tab ${index}`);
       }
       await this.exec(`--session ${this.session} tab ${index}`);
     } catch (e) {
+      log.error('switchToTab failed', { index, error: e.message });
       if (this.debugMode) {
         console.error(`[switchToTab] 错误: ${e.message}`);
       }
@@ -295,16 +322,18 @@ class Browser {
   async closeTab(index = null) {
     try {
       if (index !== null && index !== undefined) {
+        log.debug('Closing tab', { index });
         await this.exec(`--session ${this.session} tab close ${index}`);
       } else {
+        log.debug('Closing current tab');
         await this.exec(`--session ${this.session} tab close`);
       }
       // 等待 tab 关闭完成
       await new Promise(resolve => setTimeout(resolve, 300));
     } catch (e) {
       // "Cannot close the last tab" 错误是预期的，不是真正的错误
-      if (!e.message.includes('Cannot close the last tab') && this.debugMode) {
-        console.error(`[closeTab] 错误: ${e.message}`);
+      if (!e.message.includes('Cannot close the last tab')) {
+        log.warn('closeTab failed', { index, error: e.message });
       }
       // 关闭tab失败通常不是致命错误，继续执行
     }
@@ -318,6 +347,8 @@ class Browser {
     try {
       // 先获取当前 tab 列表
       const beforeTabs = await this.listTabs();
+
+      log.debug('Creating new blank tab', { currentTabCount: beforeTabs.length });
 
       // 创建空白 tab（不指定 URL）
       const cmd = `--session ${this.session} tab new`;
@@ -336,9 +367,7 @@ class Browser {
       // 找出新增加的 tab 索引
       for (const tabIndex of afterTabs) {
         if (!beforeTabs.includes(tabIndex)) {
-          if (this.debugMode) {
-            console.log(`[createNewTab] 新 tab 索引: ${tabIndex}`);
-          }
+          log.info('New blank tab created', { tabIndex });
           return tabIndex;
         }
       }
@@ -346,14 +375,10 @@ class Browser {
       // 如果没找到新 tab，返回最大索引 + 1
       const maxIndex = afterTabs.length > 0 ? Math.max(...afterTabs) : -1;
       const newIndex = maxIndex + 1;
-      if (this.debugMode) {
-        console.log(`[createNewTab] 未找到新 tab，返回: ${newIndex}`);
-      }
+      log.warn('New tab not detected, returning estimated index', { newIndex });
       return newIndex;
     } catch (e) {
-      if (this.debugMode) {
-        console.error(`[createNewTab] 错误: ${e.message}`);
-      }
+      log.error('createNewTab failed', { error: e.message });
       throw e;
     }
   }
@@ -365,6 +390,7 @@ class Browser {
    */
   async openUrlInTab(tabIndex, url) {
     try {
+      log.info('Opening URL in tab', { tabIndex, url: url.substring(0, 100) });
       // 先切换到目标 tab
       await this.switchToTab(tabIndex);
 
@@ -374,13 +400,9 @@ class Browser {
       const code = `window.location.href = '${escapedUrl}';`;
       await this.exec(`--session ${this.session} eval "${code}"`);
 
-      if (this.debugMode) {
-        console.log(`[openUrlInTab] Tab ${tabIndex}: ${url.substring(0, 60)}...`);
-      }
+      log.debug('URL opened in tab', { tabIndex, url: url.substring(0, 100) });
     } catch (e) {
-      if (this.debugMode) {
-        console.error(`[openUrlInTab] Tab ${tabIndex} 错误: ${e.message}`);
-      }
+      log.error('openUrlInTab failed', { tabIndex, url: url.substring(0, 100), error: e.message });
       throw e;
     }
   }
@@ -749,8 +771,12 @@ class Browser {
 
   async close() {
     try {
+      log.info('Closing browser session', { session: this.session });
       await this.exec(`--session ${this.session} close`, { timeout: 5000 });
-    } catch (error) {}
+      log.info('Browser session closed', { session: this.session });
+    } catch (error) {
+      log.warn('Failed to close browser session', { session: this.session, error: error.message });
+    }
   }
 
   /**
@@ -758,6 +784,7 @@ class Browser {
    * @returns {Object} 初始化结果
    */
   async initExtractor() {
+    log.info('Initializing WebExtractor', { session: this.session });
     const code = generateClientCode();
     const tempFile = path.join(PATHS.tempDir, `web_extractor_${Date.now()}.js`);
     fs.writeFileSync(tempFile, code, 'utf-8');
@@ -771,15 +798,19 @@ class Browser {
       const verifyResult = await this.evalWithFile(`typeof window.WebExtractor !== 'undefined' ? 'OK' : 'FAIL'`, `verify_${Date.now()}`);
 
       if (verifyResult === 'OK') {
+        log.info('WebExtractor initialized successfully');
         return { success: true };
       }
 
+      log.warn('WebExtractor initialization verification failed', { verifyResult });
       return { success: false, error: 'WebExtractor not available', verifyResult };
     } catch (error) {
+      log.error('WebExtractor initialization error', { error: error.message });
       // 尝试验证是否已经存在
       try {
         const verifyResult = await this.evalWithFile(`typeof window.WebExtractor !== 'undefined' ? 'OK' : 'FAIL'`, `verify_${Date.now()}`);
         if (verifyResult === 'OK') {
+          log.info('WebExtractor already initialized');
           return { success: true, alreadyInitialized: true };
         }
       } catch (e) {
@@ -911,8 +942,11 @@ class Browser {
     const userName = process.env.OA_USER_NAME;
     const userPasswd = process.env.OA_USER_PASSWD;
 
+    log.info('Login started');
+
     // 检查环境变量
     if (!userName || !userPasswd) {
+      log.error('Login failed: missing environment variables');
       console.error('\n❌ 错误: 环境变量未配置');
       console.error('\n请在 CoPaw 的 Environments 中配置以下环境变量:');
       console.error('  OA_USER_NAME=你的用户名');
@@ -922,6 +956,7 @@ class Browser {
 
     // 验证环境变量格式
     if (userName.length < 2 || userPasswd.length < 4) {
+      log.error('Login failed: invalid credentials format', { usernameLength: userName.length, passwordLength: userPasswd.length });
       console.error('\n❌ 错误: 用户名或密码格式不正确');
       console.error('  - 用户名长度应不少于2个字符');
       console.error('  - 密码长度应不少于4个字符\n');
@@ -934,9 +969,11 @@ class Browser {
 
     // 创建临时登录会话
     const loginSession = generateSessionId(SessionType.LOGIN);
+    log.info('Login session created', { loginSession });
 
     // 步骤1: 打开OA登录页面
     console.log('🔐 步骤1: 打开OA登录页面...');
+    log.info('Login step 1: opening login page');
     const loginUrl = `https://oa.xgd.com/login.jsp?j_lang=zh-CN&username=`;
     await this.exec(`--session ${loginSession} open "${loginUrl}"`);
     await new Promise(resolve => setTimeout(resolve, 2000));
@@ -944,6 +981,7 @@ class Browser {
 
     // 步骤2: 填写登录表单
     console.log('📝 步骤2: 填写登录表单...');
+    log.info('Login step 2: filling login form');
 
     // 获取快照以找到表单元素
     const snapshot = await this.exec(`--session ${loginSession} snapshot`, { timeout: 10000 });
@@ -1006,6 +1044,7 @@ class Browser {
 
     // 步骤3: 提交登录
     console.log('🚀 步骤3: 提交登录...');
+    log.info('Login step 3: submitting login form');
 
     const submitScript = `
       (function() {
@@ -1053,18 +1092,23 @@ class Browser {
     await this.exec(`--session ${loginSession} wait --load networkidle`, { timeout: 15000 });
 
     // 步骤4: 验证登录成功
+    log.info('Login step 4: verifying login result');
     try {
       const currentUrl = await this.exec(`--session ${loginSession} get url`, { timeout: 5000 });
 
       if (currentUrl.includes('login') || currentUrl.includes('sso')) {
+        log.error('Login failed: still on login page', { currentUrl: currentUrl.substring(0, 100) });
         console.error('❌ 登录失败，仍在登录页面');
         await this.exec(`--session ${loginSession} close`, { timeout: 5000 });
         throw new Error('登录失败，仍在登录页面');
       }
+      log.info('Login verified via URL check', { currentUrl: currentUrl.substring(0, 100) });
     } catch (e) {
       // URL 检查失败，尝试通过快照验证
+      log.warn('Login URL check failed, trying snapshot verification', { error: e.message });
       const checkSnapshot = await this.exec(`--session ${loginSession} snapshot`, { timeout: 10000 });
       if (checkSnapshot.includes('登录') || checkSnapshot.includes('密码')) {
+        log.error('Login failed: snapshot still shows login page');
         console.error('❌ 登录失败，仍在登录页面');
         await this.exec(`--session ${loginSession} close`, { timeout: 5000 });
         throw new Error('登录失败，仍在登录页面');
@@ -1072,9 +1116,11 @@ class Browser {
     }
 
     console.log('✅ 登录成功！');
+    log.info('Login successful');
 
     // 步骤5: 保存登录状态
     console.log('💾 步骤4: 保存登录状态...');
+    log.info('Login step 5: saving login state');
 
     const stateFile = this.config.stateFile;
     await this.exec(`--session ${loginSession} state save "${stateFile}"`, { timeout: 10000 });
@@ -1083,7 +1129,9 @@ class Browser {
       const stats = fs.statSync(stateFile);
       console.log(`✅ 登录状态已保存到: ${stateFile}`);
       console.log(`   文件大小: ${(stats.size / 1024).toFixed(1)} KB`);
+      log.info('Login state saved', { stateFile, sizeKB: (stats.size / 1024).toFixed(1) });
     } else {
+      log.error('Login state file not found after save', { stateFile });
       console.error('❌ 保存登录状态失败');
       await this.exec(`--session ${loginSession} close`, { timeout: 5000 });
       throw new Error('保存登录状态失败');
@@ -1091,6 +1139,7 @@ class Browser {
 
     // 关闭登录会话
     await this.exec(`--session ${loginSession} close`, { timeout: 5000 });
+    log.info('Login session closed', { loginSession });
 
     console.log('\n========================================');
     console.log('  ✅ 登录状态保存完成');
@@ -1101,9 +1150,11 @@ class Browser {
     // 验证并返回登录状态
     const status = await this.checkLoginValid();
     if (!status.valid) {
+      log.error('Login state validation failed after save');
       throw new Error('登录状态验证失败');
     }
 
+    log.info('Login completed successfully', { remaining: status.remaining });
     return status;
   }
 

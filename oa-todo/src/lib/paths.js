@@ -19,6 +19,7 @@ const PATHS = {
   exploreSessionsDir: path.join(baseDir, 'explore-sessions'),
   daemonConfigFile: path.join(baseDir, 'daemon.json'),
   tempDir: path.join(baseDir, 'temp'),  // 替代 /tmp
+  logsDir: process.env.OA_LOGS_DIR || path.join(baseDir, 'logs'),
   loginTimeout: parseInt(process.env.LOGIN_TIMEOUT_MINUTES || '25', 10),
   pauseTimeout: parseInt(process.env.PAUSE_TIMEOUT_MINUTES || '10', 10),
 };
@@ -28,7 +29,7 @@ const PATHS = {
  */
 function ensureDirectories() {
   [PATHS.baseDir, PATHS.detailsDir, PATHS.pausesDir,
-   PATHS.exploreSessionsDir, PATHS.tempDir].forEach(dir => {
+   PATHS.exploreSessionsDir, PATHS.tempDir, PATHS.logsDir].forEach(dir => {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   });
 }

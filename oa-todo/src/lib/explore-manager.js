@@ -7,6 +7,8 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const { PATHS } = require('./paths');
+const logger = require('./logger');
+const log = logger.getLogger('explore-mgr');
 
 class ExploreManager {
   constructor(config) {
@@ -187,6 +189,14 @@ class ExploreManager {
     };
     fs.writeFileSync(statePath, JSON.stringify(stateRef, null, 2));
 
+    log.info('saveSession: session saved', {
+      sessionId,
+      session: metadata.session,
+      purpose: sessionData.purpose,
+      timeoutMinutes: sessionData.timeoutMinutes,
+      url: sessionData.normalizedUrl
+    });
+
     return sessionData;
   }
 
@@ -229,6 +239,7 @@ class ExploreManager {
     const metaPath = this._getMetaPath(sessionId);
 
     if (!fs.existsSync(metaPath)) {
+      log.debug('updateSession: session not found', { sessionId });
       return null;
     }
 
@@ -242,8 +253,15 @@ class ExploreManager {
 
       fs.writeFileSync(metaPath, JSON.stringify(data, null, 2));
 
+      log.info('updateSession: session renewed', {
+        sessionId,
+        session: data.session,
+        timeoutMinutes: data.timeoutMinutes
+      });
+
       return data;
     } catch (e) {
+      log.warn('updateSession: failed to update session', { sessionId, error: e.message });
       return null;
     }
   }
@@ -255,11 +273,14 @@ class ExploreManager {
     const metaPath = this._getMetaPath(sessionId);
 
     if (!fs.existsSync(metaPath)) {
+      log.debug('closeSession: session not found', { sessionId });
       return false;
     }
 
     try {
       const data = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+
+      log.info('closeSession: closing session', { sessionId, session: data.session });
 
       // 关闭浏览器会话
       try {
@@ -268,14 +289,17 @@ class ExploreManager {
           stdio: 'ignore'
         });
       } catch (e) {
-        // 忽略关闭失败
+        log.warn('closeSession: failed to close browser session', { sessionId, session: data.session, error: e.message });
       }
 
       // 删除会话目录
       fs.rmSync(this._getSessionPath(sessionId), { recursive: true, force: true });
 
+      log.info('closeSession: session removed', { sessionId, session: data.session });
+
       return true;
     } catch (e) {
+      log.error('closeSession: failed to close session', { sessionId, error: e.message });
       return false;
     }
   }

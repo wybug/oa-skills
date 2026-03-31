@@ -11,6 +11,9 @@ const Browser = require('../lib/browser');
 const BrowserPool = require('../lib/browser-pool');
 const { detectTodoType, parseTitle } = require('../lib/detector');
 const { createDetailHandler } = require('../lib/detail-handlers');
+const Logger = require('../lib/logger');
+
+const log = Logger.getLogger('sync');
 
 // JavaScript 代码：获取待办列表
 const getTodosScript = `
@@ -73,6 +76,8 @@ const getTodosScript = `
  */
 async function syncIncremental(options, config) {
   const spinner = ora('正在增量同步...').start();
+  const startTime = Date.now();
+  log.info('Sync started', { mode: 'incremental', newOnly: true });
 
   try {
     // 初始化数据库
@@ -93,6 +98,7 @@ async function syncIncremental(options, config) {
     const browser = new Browser(config, { debugMode: options.debug });
     let loginStatus = await browser.checkLoginValid();
     if (!loginStatus.valid) {
+      log.info('Login state expired, re-login required', { mode: 'incremental' });
       spinner.text = '需要重新登录...';
       if (!process.env.OA_USER_NAME || !process.env.OA_USER_PASSWD) {
         spinner.fail('缺少环境变量 OA_USER_NAME 或 OA_USER_PASSWD');
@@ -104,9 +110,11 @@ async function syncIncremental(options, config) {
       }
       await browser.login();
       loginStatus = await browser.checkLoginValid();
+      log.info('Login succeeded', { mode: 'incremental', remaining: loginStatus.remaining });
     }
 
     spinner.succeed(`登录状态有效（剩余约 ${loginStatus.remaining} 分钟）`);
+    log.debug('Login state loaded', { mode: 'incremental', remaining: loginStatus.remaining });
     spinner.start('加载登录状态...');
     await browser.loadState();
     spinner.succeed('登录状态已加载');
@@ -227,12 +235,23 @@ async function syncIncremental(options, config) {
     spinner.succeed('增量同步完成！');
 
     // 显示统计
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(chalk.bold('\n📊 增量同步统计:'));
     console.log(`  新增: ${chalk.green(newCount)} 条`);
     console.log(`  更新: ${chalk.yellow(updateCount)} 条`);
     console.log(`  总计: ${newCount + updateCount} 条新待办`);
     console.log(chalk.gray(`\n本地最新时间: ${localLatestTime}`));
     console.log(chalk.gray(`数据库: ${config.dbPath}`));
+
+    log.info('Sync completed', {
+      mode: 'incremental',
+      newOnly: true,
+      total: newCount + updateCount,
+      new: newCount,
+      updated: updateCount,
+      localLatestTime,
+      elapsed: `${elapsed}s`
+    });
 
   } catch (error) {
     spinner.fail('增量同步失败');
@@ -241,6 +260,13 @@ async function syncIncremental(options, config) {
     if (error.stack) {
       console.error(chalk.gray('\n堆栈:'), error.stack);
     }
+
+    log.error('Sync failed', {
+      mode: 'incremental',
+      newOnly: true,
+      error: error.message,
+      stack: error.stack
+    });
 
     process.exit(1);
   }
@@ -253,6 +279,22 @@ async function sync(options) {
   }
 
   const spinner = ora('正在同步待办...').start();
+  const startTime = Date.now();
+
+  // Determine sync mode for logging
+  let syncMode = 'full';
+  if (options.fetchDetail) syncMode = 'fetch-detail';
+  else if (options.force && typeof options.force === 'string') syncMode = 'force-detail';
+
+  log.info('Sync started', {
+    mode: syncMode,
+    newOnly: false,
+    limit: options.limit || 0,
+    fetchDetail: !!options.fetchDetail,
+    forceUpdate: !!options.forceUpdate,
+    force: options.force || false,
+    concurrency: options.concurrency || 1
+  });
 
   try {
     // 初始化数据库
@@ -269,6 +311,7 @@ async function sync(options) {
 
       if (todosNeedingDetails.length === 0) {
         spinner.succeed('所有待办详情已完整');
+        log.info('Sync completed, all details already fetched', { mode: 'fetch-detail' });
         await db.close();
         return;
       }
@@ -278,6 +321,7 @@ async function sync(options) {
       // 检查登录状态（不打开页面）
       let loginStatus = await browser.checkLoginValid();
       if (options.login || !loginStatus.valid) {
+        log.info('Login state expired, re-login required', { mode: 'fetch-detail', forceLogin: !!options.login });
         spinner.text = '需要重新登录...';
         if (!process.env.OA_USER_NAME || !process.env.OA_USER_PASSWD) {
           spinner.fail('缺少环境变量 OA_USER_NAME 或 OA_USER_PASSWD');
@@ -288,12 +332,16 @@ async function sync(options) {
         }
         await browser.login();
         loginStatus = await browser.checkLoginValid();
+        log.info('Login succeeded', { mode: 'fetch-detail', remaining: loginStatus.remaining });
       }
 
       spinner.succeed(`登录状态有效（剩余约 ${loginStatus.remaining} 分钟）`);
 
       // 直接获取详情，无需加载列表页面
       await fetchDetailsConcurrent(null, db, options.config, options);
+
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      log.info('Sync completed', { mode: 'fetch-detail', elapsed: `${elapsed}s` });
 
       await db.close();
       return;
@@ -306,6 +354,7 @@ async function sync(options) {
       // 检查登录状态
       let loginStatus = await browser.checkLoginValid();
       if (options.login || !loginStatus.valid) {
+        log.info('Login state expired, re-login required', { mode: 'force-detail', fdId: options.force, forceLogin: !!options.login });
         spinner.text = '需要重新登录...';
         if (!process.env.OA_USER_NAME || !process.env.OA_USER_PASSWD) {
           spinner.fail('缺少环境变量 OA_USER_NAME 或 OA_USER_PASSWD');
@@ -316,6 +365,7 @@ async function sync(options) {
         }
         await browser.login();
         loginStatus = await browser.checkLoginValid();
+        log.info('Login succeeded', { mode: 'force-detail', fdId: options.force, remaining: loginStatus.remaining });
       }
 
       spinner.succeed(`登录状态有效（剩余约 ${loginStatus.remaining} 分钟）`);
@@ -324,6 +374,7 @@ async function sync(options) {
       const todo = await db.getTodo(options.force);
       if (!todo) {
         spinner.fail(`待办不存在: ${options.force}`);
+        log.warn('Todo not found in database', { mode: 'force-detail', fdId: options.force });
         console.log(chalk.gray('\n💡 提示: 使用 "oa-todo list" 查看本地待办'));
         await db.close();
         await browser.close();
@@ -339,6 +390,9 @@ async function sync(options) {
       console.log(chalk.gray(`标题: ${todo.title}`));
       console.log(chalk.gray(`\n详情路径: ${todo.detail_path}`));
 
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      log.info('Sync completed', { mode: 'force-detail', fdId: options.force, elapsed: `${elapsed}s` });
+
       await browser.close();
       await db.close();
       return;
@@ -349,6 +403,7 @@ async function sync(options) {
     let loginStatus = await browser.checkLoginValid();
 
     if (options.login || !loginStatus.valid) {
+      log.info('Login state expired, re-login required', { mode: 'full', forceLogin: !!options.login });
       spinner.text = '需要重新登录...';
       if (!process.env.OA_USER_NAME || !process.env.OA_USER_PASSWD) {
         spinner.fail('缺少环境变量 OA_USER_NAME 或 OA_USER_PASSWD');
@@ -360,9 +415,11 @@ async function sync(options) {
 
       await browser.login();
       loginStatus = await browser.checkLoginValid();
+      log.info('Login succeeded', { mode: 'full', remaining: loginStatus.remaining });
     }
 
     spinner.succeed(`登录状态有效（剩余约 ${loginStatus.remaining} 分钟）`);
+    log.debug('Login state loaded', { mode: 'full', remaining: loginStatus.remaining });
     spinner.start('加载登录状态...');
 
     // 加载登录状态
@@ -583,6 +640,7 @@ async function sync(options) {
     spinner.succeed('同步完成！');
 
     // 显示统计
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(chalk.bold('\n📊 同步统计:'));
     console.log(`  总计: ${totalCount} 条`);
     console.log(`  新增: ${chalk.green(newCount)} 条`);
@@ -599,6 +657,19 @@ async function sync(options) {
 
     console.log(chalk.gray(`\n数据库: ${options.config.dbPath}`));
 
+    log.info('Sync completed', {
+      mode: syncMode,
+      newOnly: false,
+      total: totalCount,
+      new: newCount,
+      updated: updateCount,
+      skipped: skipCount,
+      reset: resetCount,
+      processed: processResult ? processResult.marked : 0,
+      pages: pageNum,
+      elapsed: `${elapsed}s`
+    });
+
   } catch (error) {
     spinner.fail('同步失败');
     console.error(chalk.red('\n错误:'), error.message);
@@ -606,6 +677,13 @@ async function sync(options) {
     if (error.stack) {
       console.error(chalk.gray('\n堆栈:'), error.stack);
     }
+
+    log.error('Sync failed', {
+      mode: syncMode,
+      newOnly: false,
+      error: error.message,
+      stack: error.stack
+    });
 
     process.exit(1);
   }
@@ -620,12 +698,14 @@ async function sync(options) {
  */
 async function fetchDetailsConcurrent(browser, db, config, options) {
   const spinner = ora('正在获取待办详情...').start();
+  const startTime = Date.now();
 
   // 从数据库获取缺少详情的待办（--limit 限制总数）
   const todos = await db.getTodosWithoutDetails(options.limit);
 
   if (todos.length === 0) {
     spinner.info('所有待办详情已完整');
+    log.info('fetchDetailsConcurrent skipped, no todos without details');
     return;
   }
 
@@ -657,6 +737,15 @@ async function fetchDetailsConcurrent(browser, db, config, options) {
 
   spinner.text = `需要获取详情: ${total} 条，并发数: ${actualConcurrency} (${instances}实例×${tabsPerInstance}tab)`;
 
+  log.info('fetchDetailsConcurrent started', {
+    total,
+    instances,
+    tabsPerInstance,
+    actualConcurrency,
+    cdpMode: isCdpMode,
+    requestedConcurrency: requestedInstances
+  });
+
   // 创建浏览器池
   const pool = new BrowserPool(config, {
     instances: instances,
@@ -677,7 +766,14 @@ async function fetchDetailsConcurrent(browser, db, config, options) {
     // 使用回调更新进度
     await pool.processTodos(todos, db);
 
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     spinner.succeed(`详情获取完成！共 ${total} 条`);
+
+    log.info('fetchDetailsConcurrent completed', {
+      total,
+      instances,
+      elapsed: `${elapsed}s`
+    });
 
   } finally {
     // 确保关闭所有浏览器实例
@@ -696,6 +792,7 @@ async function fetchDetailsConcurrent(browser, db, config, options) {
  */
 async function fetchTodoDetail(browser, db, config, todo, detailOptions = {}) {
   const detailDir = path.join(config.detailsDir, todo.fd_id);
+  log.debug('fetchTodoDetail started', { fdId: todo.fd_id, type: todo.todo_type });
 
   if (!fs.existsSync(detailDir)) {
     fs.mkdirSync(detailDir, { recursive: true });
@@ -703,8 +800,18 @@ async function fetchTodoDetail(browser, db, config, todo, detailOptions = {}) {
 
   // 打开详情页面
   const url = todo.href.startsWith('http') ? todo.href : `https://oa.xgd.com${todo.href}`;
-  // 详情页面可能需要更长的加载时间，使用30秒超时
-  await browser.open(url, 30000);
+  try {
+    // 详情页面可能需要更长的加载时间，使用30秒超时
+    await browser.open(url, 30000);
+  } catch (openError) {
+    log.error('fetchTodoDetail failed to open detail page', {
+      fdId: todo.fd_id,
+      type: todo.todo_type,
+      url,
+      error: openError.message
+    });
+    throw openError;
+  }
 
   // 额外等待确保页面完全加载
   await new Promise(resolve => setTimeout(resolve, 2000));
@@ -714,6 +821,11 @@ async function fetchTodoDetail(browser, db, config, todo, detailOptions = {}) {
   if (!initResult.success) {
     console.error(`${chalk.red('[ERROR]')} 初始化 WebExtractor 失败: ${initResult.error || '未知错误'}`);
     console.error(`${chalk.gray('  详情:')} fdId=${todo.fd_id}, type=${todo.todo_type}, title=${todo.title.substring(0, 30)}...`);
+    log.error('fetchTodoDetail WebExtractor init failed', {
+      fdId: todo.fd_id,
+      type: todo.todo_type,
+      error: initResult.error || 'unknown'
+    });
     // 保存快照用于调试
     const snapshot = await browser.snapshot();
     const snapshotPath = path.join(detailDir, 'snapshot.txt');
@@ -728,6 +840,11 @@ async function fetchTodoDetail(browser, db, config, todo, detailOptions = {}) {
   if (!Array.isArray(allTables)) {
     console.error(`${chalk.red('[ERROR]')} getAllTables 返回格式错误，期望数组，实际类型: ${typeof allTables}`);
     console.error(`${chalk.gray('  详情:')} fdId=${todo.fd_id}, type=${todo.todo_type}`);
+    log.error('fetchTodoDetail getAllTables returned unexpected format', {
+      fdId: todo.fd_id,
+      type: todo.todo_type,
+      actualType: typeof allTables
+    });
     // 保存快照用于调试
     const snapshot = await browser.snapshot();
     const snapshotPath = path.join(detailDir, 'snapshot.txt');
@@ -787,6 +904,18 @@ async function fetchTodoDetail(browser, db, config, todo, detailOptions = {}) {
   if (!result.isApprovable) {
     await db.updateStatus(todo.fd_id, 'skip', 'sync', result.reason);
     console.log(chalk.yellow(`   ⚠️  ${todo.fd_id} 不可审批，状态设置为 skip`));
+    log.info('fetchTodoDetail todo marked as skip', {
+      fdId: todo.fd_id,
+      type: todo.todo_type,
+      reason: result.reason
+    });
+  } else {
+    log.info('fetchTodoDetail completed', {
+      fdId: todo.fd_id,
+      type: todo.todo_type,
+      isApprovable: true,
+      supportedActions: result.supportedActions
+    });
   }
 }
 

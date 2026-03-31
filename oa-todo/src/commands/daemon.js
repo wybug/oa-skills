@@ -8,6 +8,8 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { PATHS } = require('../lib/paths');
+const Logger = require('../lib/logger');
+const log = Logger.getLogger('daemon');
 
 // 配置文件路径
 const DAEMON_CONFIG_FILE = PATHS.daemonConfigFile;
@@ -107,8 +109,10 @@ async function showStatus(options) {
 async function startDaemon(options) {
   const spinner = ora('启动 daemon...').start();
   const cdpUrl = process.env.OA_CDP_URL;
+  log.info('Daemon starting', { headed: options.headed });
 
   if (cdpUrl) {
+    log.info('CDP mode configured', { cdpUrl });
     // CDP模式：保存配置并返回
     const config = {
       cdpUrl,
@@ -144,9 +148,11 @@ async function startDaemon(options) {
     });
 
     spinner.succeed('Daemon 已启动');
+    log.info('Daemon started', { headed: headedMode });
     console.log(chalk.gray(`\n模式: ${headedMode ? '可见窗口' : '无头模式'}`));
     console.log(chalk.gray('提示: daemon 将持续运行，使用 Ctrl+C 或 "oa-todo daemon stop" 停止\n'));
   } catch (error) {
+    log.error('Daemon start failed', { error: error.message });
     spinner.fail('启动 daemon 失败');
     console.error(chalk.red('\n错误:'), error.message);
     process.exit(1);
@@ -156,6 +162,7 @@ async function startDaemon(options) {
 async function restartDaemon(options) {
   const spinner = ora('重启 daemon...').start();
   const cdpUrl = process.env.OA_CDP_URL;
+  log.info('Daemon restarting');
 
   if (cdpUrl) {
     // CDP模式：保存配置
@@ -204,6 +211,7 @@ async function restartDaemon(options) {
     });
 
     spinner.succeed('Daemon 已重启');
+    log.info('Daemon restarted', { headed: headedMode });
     console.log(chalk.gray(`\n模式: ${headedMode ? '可见窗口' : '无头模式'}`));
   } catch (error) {
     spinner.fail('重启 daemon 失败');
@@ -214,6 +222,7 @@ async function restartDaemon(options) {
 
 async function stopDaemon() {
   const spinner = ora('停止 daemon...').start();
+  log.info('Daemon stopping');
 
   try {
     execSync('npx agent-browser close', {
@@ -228,6 +237,7 @@ async function stopDaemon() {
     }
 
     spinner.succeed('Daemon 已停止');
+    log.info('Daemon stopped');
   } catch (error) {
     spinner.warn('Daemon 可能已经停止');
   }
@@ -236,6 +246,7 @@ async function stopDaemon() {
 async function releaseDaemon() {
   const spinner = ora('释放 daemon...').start();
   const cdpUrl = process.env.OA_CDP_URL;
+  log.info('Daemon releasing');
 
   // CDP模式下不需要关闭外部Chrome
   if (cdpUrl) {
@@ -253,6 +264,7 @@ async function releaseDaemon() {
 
     // 保留环境变量和配置文件（不删除）
     spinner.succeed('Daemon 已释放（配置已保留）');
+    log.info('Daemon released');
 
     // 显示当前配置
     if (fs.existsSync(DAEMON_CONFIG_FILE)) {

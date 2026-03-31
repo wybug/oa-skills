@@ -11,6 +11,8 @@ const Browser = require('../lib/browser');
 const ExploreManager = require('../lib/explore-manager');
 const { createOATools } = require('../lib/web-extractor');
 const { generateSessionId, SessionType } = require('../lib/session-naming');
+const Logger = require('../lib/logger');
+const log = Logger.getLogger('explore');
 
 async function explore(url, options) {
   const spinner = ora('正在处理探索请求...').start();
@@ -27,10 +29,12 @@ async function explore(url, options) {
     // ========== 处理 --close 选项 ==========
     if (options.close) {
       const sessionId = options.close;
+      log.info('Explore close requested', { sessionId });
 
       spinner.start(`正在关闭会话: ${sessionId}...`);
 
       const closed = await exploreManager.closeSession(sessionId);
+      log.info('Explore session closed', { sessionId });
 
       if (closed) {
         spinner.succeed('会话已关闭');

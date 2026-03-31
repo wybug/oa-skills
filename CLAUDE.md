@@ -58,6 +58,7 @@ OA_DB_PATH=~/.oa-todo/oa_todos.db          # Database file location
 OA_TODOS_DIR=~/.oa-todo                    # Todos directory
 OA_DETAILS_DIR=~/.oa-todo/details          # Details directory
 OA_CDP_URL=ws://localhost:9222            # Chrome DevTools Protocol URL (CDP mode)
+OA_LOGS_DIR=~/.oa-todo/logs              # Log files directory
 ```
 
 **CDP Mode**: Setting `OA_CDP_URL` enables CDP mode, connecting to an external Chrome instance instead of launching a new browser. Useful for debugging or reusing existing browser sessions. Note: CDP mode only supports single-instance concurrency (external Chrome limitation).
@@ -236,6 +237,9 @@ Default location: `~/.oa-todo/` (overridable via `OA_TODOS_DIR`)
 - **Pause sessions**: `~/.oa-todo/pauses/<fdId>.json` - Checkpoint session data
 - **Explore sessions**: `~/.oa-todo/explore-sessions/<sessionId>/` - Exploration session data
 - **Temporary files**: `~/.oa-todo/temp/` - Temporary JS files for eval execution (auto-cleaned)
+- **Logs**: `~/.oa-todo/logs/` - Log files (overridable via `OA_LOGS_DIR`)
+  - Daily rotation: `oa-todo-YYYY-MM-DD.log` (Beijing timezone)
+  - Retention: 7 days,
 
 ## Session Naming Convention
 
@@ -323,6 +327,7 @@ oa-todo approve <fdId> <action>
 - `src/lib/detail-handlers.js` - Type-specific detail page handlers
 - `src/lib/web-extractor.js` - JavaScript injection for data extraction (WebExtractor toolkit)
 - `src/lib/paths.js` - Centralized path configuration and directory management
+- `src/lib/logger.js` - File-based logging (日志轮转、按天分割、7天保留)
 - `src/lib/session-naming.js` - Unified session ID generation and parsing
 - `src/lib/pause-manager.js` - Checkpoint session lifecycle management
 - `src/lib/explore-manager.js` - Explore session lifecycle management

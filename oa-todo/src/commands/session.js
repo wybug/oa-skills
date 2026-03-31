@@ -8,6 +8,8 @@ const ora = require('ora');
 const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
+const logger = require('../lib/logger');
+const log = logger.getLogger('session');
 
 async function session(action, options) {
   const { config } = options;
@@ -37,6 +39,7 @@ async function session(action, options) {
 }
 
 async function listSessions(pausesDir, exploreSessionsDir) {
+  log.info('list start');
   console.log(chalk.bold('\n📋 活跃会话'));
   console.log(chalk.cyan('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
 
@@ -84,9 +87,11 @@ async function listSessions(pausesDir, exploreSessionsDir) {
   } else {
     console.log(chalk.gray(`总计: ${pauseCount + exploreCount} 个会话\n`));
   }
+  log.info('list complete', { pauseCount, exploreCount, total: pauseCount + exploreCount });
 }
 
 async function closeSession(sessionId, pausesDir, exploreSessionsDir) {
+  log.info('close start', { sessionId });
   const spinner = ora('关闭会话...').start();
 
   // 尝试在pause中查找
@@ -96,10 +101,11 @@ async function closeSession(sessionId, pausesDir, exploreSessionsDir) {
     try {
       execSync(`npx agent-browser --session ${data.session} close`, { stdio: 'ignore' });
     } catch (e) {
-      // 忽略关闭失败
+      log.warn('close pause session browser failed', { sessionId, error: e.message });
     }
     fs.unlinkSync(pausePath);
     spinner.succeed(`已关闭pause会话: ${sessionId}`);
+    log.info('close complete', { sessionId, type: 'pause' });
     return;
   }
 
@@ -112,18 +118,21 @@ async function closeSession(sessionId, pausesDir, exploreSessionsDir) {
       try {
         execSync(`npx agent-browser --session ${data.session} close`, { stdio: 'ignore' });
       } catch (e) {
-        // 忽略关闭失败
+        log.warn('close explore session browser failed', { sessionId, error: e.message });
       }
     }
     fs.rmSync(explorePath, { recursive: true, force: true });
     spinner.succeed(`已关闭explore会话: ${sessionId}`);
+    log.info('close complete', { sessionId, type: 'explore' });
     return;
   }
 
   spinner.fail(`未找到会话: ${sessionId}`);
+  log.warn('close failed: session not found', { sessionId });
 }
 
 async function cleanSessions(pausesDir, exploreSessionsDir, config) {
+  log.info('clean start');
   const spinner = ora('清理过期会话...').start();
   // 使用PauseManager和ExploreManager的cleanup方法
   const PauseManager = require('../lib/pause-manager');
@@ -136,6 +145,7 @@ async function cleanSessions(pausesDir, exploreSessionsDir, config) {
   await exploreMgr.cleanup();
 
   spinner.succeed('已清理过期会话');
+  log.info('clean complete');
 }
 
 function showHelp() {

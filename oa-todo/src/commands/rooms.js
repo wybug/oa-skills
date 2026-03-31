@@ -7,6 +7,8 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const Browser = require('../lib/browser');
+const Logger = require('../lib/logger');
+const log = Logger.getLogger('rooms');
 
 // 获取今天的日期（YYYY-MM-DD格式）
 function getTodayDate() {
@@ -41,6 +43,7 @@ async function rooms(options) {
   const spinner = require('ora')('正在初始化...').start();
 
   try {
+    log.info('Rooms started', { date: options.date });
     const { config } = options;
 
     // 解析日期参数
@@ -71,6 +74,7 @@ async function rooms(options) {
     }
 
     spinner.succeed(`登录状态有效（剩余约 ${loginStatus.remaining} 分钟）`);
+    log.info('Login valid', { remaining: loginStatus.remaining });
 
     // 调用会议室查询脚本
     const scriptPath = path.join(__dirname, '../../scripts/getMeetingRooms.js');
@@ -111,6 +115,7 @@ async function rooms(options) {
     await browser.close();
 
   } catch (error) {
+    log.error('Rooms failed', { error: error.message });
     console.error(chalk.red('错误:'), error.message);
     process.exit(1);
   }

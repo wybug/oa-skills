@@ -8,9 +8,12 @@ const path = require('path');
 const Database = require('../lib/database');
 const Browser = require('../lib/browser');
 const { STATUS_NAMES, TYPE_NAMES } = require('../config');
+const Logger = require('../lib/logger');
+const log = Logger.getLogger('show');
 
 async function show(fdId, options) {
   const isDebugMode = options.debug || false;
+  log.info('Show started', { fdId });
 
   try {
     // 初始化数据库
@@ -21,6 +24,7 @@ async function show(fdId, options) {
     const todo = await db.getTodoByExactId(fdId);
 
     if (!todo) {
+      log.warn('Todo not found', { fdId });
       console.log(chalk.red(`未找到待办: ${fdId}`));
       console.log(chalk.yellow('\n请先同步待办: oa-todo sync'));
       await db.close();
@@ -85,8 +89,10 @@ async function show(fdId, options) {
     }
     
     await db.close();
-    
+    log.info('Show completed', { fdId });
+
   } catch (error) {
+    log.error('Show failed', { fdId, error: error.message });
     console.error(chalk.red('错误:'), error.message);
     process.exit(1);
   }
