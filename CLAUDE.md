@@ -331,6 +331,7 @@ oa-todo approve <fdId> <action>
 - `src/lib/session-naming.js` - Unified session ID generation and parsing
 - `src/lib/pause-manager.js` - Checkpoint session lifecycle management
 - `src/lib/explore-manager.js` - Explore session lifecycle management
+- `src/lib/exec-agent.js` - agent-browser execution via `execFileSync` with arg parsing and stdin redirect
 - `src/lib/browser-pool.js` - Concurrent browser instances for detail fetching
 - `src/config.js` - Constants for status, types, actions, and their mappings
 
@@ -397,8 +398,8 @@ oa-todo explore "/some/page" --pause
 
 **Key files:**
 - `oa-todo/scripts/approvalHelper.js` - Base class for approval scripts
-- `oa-todo/scripts/ehrApproval.js` - EHR leave approval example
-- `oa-todo/scripts/ehrApprovalTest.js` - EHR test script
+- `oa-todo/scripts/ehrApprovalV2.js` - EHR leave approval (v2)
+- `oa-todo/scripts/ehrApprovalTestV3.js` - EHR test script (v3)
 - `oa-todo/scripts/rpa-generator-prompt.md` - AI prompt template for RPA generation
 
 ### 全自动流程
@@ -473,9 +474,21 @@ AI：（自动执行并报告结果）
 | `scripts/ehrApprovalTestV3.js` | EHR | EHR 测试脚本 v3 |
 | `scripts/expenseApproval.js` | 费用报销 | 费用报销审批 |
 | `scripts/meetingApproval.js` | 会议邀请 | 会议邀请审批 |
-| `scripts/workflowApproval.js` | 通用流程 | 通用流程审批 |
+| `scripts/workflowApprovalV2.js` | 通用流程 | 通用流程审批 v2 |
+| `scripts/workflowApprovalV2Test.js` | 通用流程 | 通用流程测试脚本 |
 | `scripts/getMeetingRooms.js` | 工具 | 会议室查询工具 |
 | `scripts/rpa-generator-prompt.md` | 模板 | AI 提示词模板 |
+
+## Testing
+
+Tests are in `oa-todo/test/` and run directly with Node.js (no test framework):
+
+```bash
+cd oa-todo
+node test/parseArgs.test.js    # Test exec-agent arg parsing
+```
+
+Tests use `assert` module with a simple pass/fail runner. Each test file is self-contained and exits with code 1 on failure.
 
 ## Common Development Tasks
 
@@ -488,6 +501,7 @@ When modifying the CLI:
 6. Use `src/lib/paths.js` for all path configuration - never hardcode paths
 7. When adding pause/explore features, use PauseManager/ExploreManager classes
 8. For CDP mode, respect the single-instance limitation when implementing concurrent operations
+9. Use `execAgent()` / `execAgentStdin()` from `exec-agent.js` for all agent-browser calls (not `execSync`)
 
 Session naming:
 - Always use `generateSessionId(type, options)` from `session-naming.js`

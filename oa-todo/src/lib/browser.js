@@ -100,7 +100,8 @@ class Browser {
       const execOptions = {
         encoding: 'utf-8',
         timeout: options.timeout || 60000,
-        maxBuffer: options.maxBuffer || 20 * 1024 * 1024
+        maxBuffer: options.maxBuffer || 20 * 1024 * 1024,
+        stdio: ['pipe', 'pipe', 'pipe']  // capture stderr instead of inheriting
       };
 
       // 处理 stdin 重定向：读取文件内容作为 input
