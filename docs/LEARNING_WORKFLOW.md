@@ -32,7 +32,7 @@ oa-todo approve --wait 1862fcf9fc8e864009220764132a4911 驳回
 SESSION="oa-todo-xxxxxxxxx"
 
 # 获取页面快照
-npx agent-browser --session $SESSION snapshot > /tmp/page_snapshot.txt
+agent-browser --session $SESSION snapshot > /tmp/page_snapshot.txt
 
 # 查找特定元素
 grep -E "(button|radio|select|textarea)" /tmp/page_snapshot.txt
@@ -44,13 +44,13 @@ cat > /tmp/analyze.js << 'EOF'
   return result;
 })()
 EOF
-npx agent-browser --session $SESSION eval --stdin < /tmp/analyze.js
+agent-browser --session $SESSION eval --stdin < /tmp/analyze.js
 
 # 测试点击元素
-npx agent-browser --session $SESSION click "selector"
+agent-browser --session $SESSION click "selector"
 
 # 测试填写表单
-npx agent-browser --session $SESSION type "textarea" "测试内容"
+agent-browser --session $SESSION type "textarea" "测试内容"
 ```
 
 ### 4. 记录发现
@@ -176,25 +176,25 @@ oa-todo approve <fdId> <action>
 
 ```bash
 # 查找所有按钮
-npx agent-browser --session $SESSION eval "
+agent-browser --session $SESSION eval "
   Array.from(document.querySelectorAll('button, input[type=\"button\"]'))
     .map(b => ({ text: b.textContent, value: b.value, type: b.type }))
 "
 
 # 查找所有单选按钮
-npx agent-browser --session $SESSION eval "
+agent-browser --session $SESSION eval "
   Array.from(document.querySelectorAll('input[type=\"radio\"]'))
     .map(r => ({ name: r.name, value: r.value, checked: r.checked }))
 "
 
 # 查找所有下拉框
-npx agent-browser --session $SESSION eval "
+agent-browser --session $SESSION eval "
   Array.from(document.querySelectorAll('select'))
     .map(s => ({ name: s.name, options: Array.from(s.options).map(o => o.text) }))
 "
 
 # 查找可见元素
-npx agent-browser --session $SESSION eval "
+agent-browser --session $SESSION eval "
   Array.from(document.querySelectorAll('*'))
     .filter(el => el.offsetParent !== null && el.textContent.trim().includes('关键字'))
     .map(el => ({ tag: el.tagName, text: el.textContent.trim().substring(0, 50) }))
@@ -206,16 +206,16 @@ npx agent-browser --session $SESSION eval "
 **问题：找不到元素**
 ```bash
 # 检查元素是否在iframe中
-npx agent-browser --session $SESSION eval "document.querySelectorAll('iframe').length"
+agent-browser --session $SESSION eval "document.querySelectorAll('iframe').length"
 
 # 检查元素是否可见
-npx agent-browser --session $SESSION eval "document.querySelector('selector')?.offsetParent !== null"
+agent-browser --session $SESSION eval "document.querySelector('selector')?.offsetParent !== null"
 ```
 
 **问题：点击无响应**
 ```bash
 # 检查元素是否被遮挡
-npx agent-browser --session $SESSION eval "
+agent-browser --session $SESSION eval "
   const el = document.querySelector('selector');
   const rect = el.getBoundingClientRect();
   return { visible: rect.width > 0 && rect.height > 0 };
@@ -228,9 +228,9 @@ npx agent-browser --session $SESSION eval "
 |------|------|
 | `oa-todo approve --wait <fdId> <action>` | 停留在审批页面学习 |
 | `oa-todo approve --debug <fdId> <action>` | 调试模式观察执行 |
-| `npx agent-browser --session <name> snapshot` | 获取页面快照 |
-| `npx agent-browser --session <name> eval --stdin < file.js` | 执行JavaScript文件 |
-| `npx agent-browser --session <name> close` | 关闭浏览器会话 |
+| `agent-browser --session <name> snapshot` | 获取页面快照 |
+| `agent-browser --session <name> eval --stdin < file.js` | 执行JavaScript文件 |
+| `agent-browser --session <name> close` | 关闭浏览器会话 |
 
 ## 自动化脚本位置
 

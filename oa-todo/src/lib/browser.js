@@ -21,7 +21,7 @@ class Browser {
 
     if (this.cdpMode) {
       // CDP模式：基础命令包含 --cdp
-      this.agentBrowser = `npx agent-browser --cdp "${this.cdpUrl}"`;
+      this.agentBrowser = `agent-browser --cdp "${this.cdpUrl}"`;
       this.headedMode = true;
       if (this.debugMode) console.log('🔗 CDP模式：使用外部Chrome会话');
       log.info('Browser initialized in CDP mode', { cdpUrl: this.cdpUrl });
@@ -35,7 +35,7 @@ class Browser {
       // 复用模式下不关闭现有 daemon
       if (!this.reuseMode) {
         try {
-          execSync('npx agent-browser close', { timeout: 5000, stdio: 'ignore' });
+          execSync('agent-browser close', { timeout: 5000, stdio: 'ignore' });
         } catch (e) {
           log.debug('agent-browser close ignored (no existing daemon)', { error: e.message });
         }
@@ -43,7 +43,7 @@ class Browser {
 
       // 根据 headedMode 构建命令（与 debugMode 解耦）
       const headedFlag = this.headedMode ? '--headed' : '';
-      this.agentBrowser = `npx agent-browser ${headedFlag}`.trim();
+      this.agentBrowser = `agent-browser ${headedFlag}`.trim();
       log.info('Browser initialized', { headed: this.headedMode, reuse: this.reuseMode });
     }
 

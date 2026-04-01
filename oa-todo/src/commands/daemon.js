@@ -140,7 +140,7 @@ async function startDaemon(options) {
     process.env.OA_BROWSER_HEADED = headedMode ? '1' : '0';
 
     const headedFlag = headedMode ? '--headed' : '';
-    const cmd = `npx agent-browser ${headedFlag}`;
+    const cmd = `agent-browser ${headedFlag}`;
 
     execSync(cmd, {
       stdio: 'inherit',
@@ -180,7 +180,7 @@ async function restartDaemon(options) {
 
   try {
     // 停止现有 daemon
-    execSync('npx agent-browser close', {
+    execSync('agent-browser close', {
       stdio: 'ignore',
       timeout: 5000
     });
@@ -205,7 +205,7 @@ async function restartDaemon(options) {
     process.env.OA_BROWSER_HEADED = headedMode ? '1' : '0';
 
     const headedFlag = headedMode ? '--headed' : '';
-    execSync(`npx agent-browser ${headedFlag}`, {
+    execSync(`agent-browser ${headedFlag}`, {
       stdio: 'inherit',
       timeout: 30000
     });
@@ -225,7 +225,7 @@ async function stopDaemon() {
   log.info('Daemon stopping');
 
   try {
-    execSync('npx agent-browser close', {
+    execSync('agent-browser close', {
       stdio: 'ignore',
       timeout: 5000
     });
@@ -257,7 +257,7 @@ async function releaseDaemon() {
   }
 
   try {
-    execSync('npx agent-browser close', {
+    execSync('agent-browser close', {
       stdio: 'ignore',
       timeout: 5000
     });

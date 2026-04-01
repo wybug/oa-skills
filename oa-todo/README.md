@@ -269,19 +269,19 @@ breakpoint(browser, '待办详情页面分析', {
 
 ```bash
 # 获取所有表格
-npx agent-browser --session <输出的session> eval 'WebExtractor.DebugHelper.getAllTables()'
+agent-browser --session <输出的session> eval 'WebExtractor.DebugHelper.getAllTables()'
 
 # 提取表格数据
-npx agent-browser --session <输出的session> eval 'WebExtractor.TableExtractor.extractTable("table:nth-of-type(2)", {format:"markdown"})'
+agent-browser --session <输出的session> eval 'WebExtractor.TableExtractor.extractTable("table:nth-of-type(2)", {format:"markdown"})'
 
 # 获取页面概览
-npx agent-browser --session <输出的session> eval 'WebExtractor.DebugHelper.getPageOverview()'
+agent-browser --session <输出的session> eval 'WebExtractor.DebugHelper.getPageOverview()'
 
 # 截图查看
-npx agent-browser --session <输出的session> screenshot /tmp/debug.png
+agent-browser --session <输出的session> screenshot /tmp/debug.png
 
 # 关闭浏览器
-npx agent-browser --session <输出的session> close
+agent-browser --session <输出的session> close
 ```
 
 ### 业务逻辑实现

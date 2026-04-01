@@ -129,10 +129,10 @@ oa-todo approve <fdId> --pause --timeout 15
 ### 3. 获取页面内容
 ```bash
 # 使用 agent-browser 获取页面快照
-npx agent-browser --session <session> snapshot
+agent-browser --session <session> snapshot
 
 # 提取页面内容（JavaScript）
-npx agent-browser --session <session> eval "document.body.innerHTML"
+agent-browser --session <session> eval "document.body.innerHTML"
 ```
 - 提取关键信息：
   - 基本信息：标题、提交人、金额等

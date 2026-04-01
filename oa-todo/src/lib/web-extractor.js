@@ -551,12 +551,12 @@ function breakpoint(browser, label, info) {
   console.log('');
   console.log('💡 浏览器保持打开，可手动调试：');
   if (browser && browser.session) {
-    console.log('   npx agent-browser --session ' + browser.session + ' snapshot');
-    console.log('   npx agent-browser --session ' + browser.session + ' eval "WebExtractor.DebugHelper.getAllTables()"');
-    console.log('   npx agent-browser --session ' + browser.session + ' screenshot /tmp/debug.png');
+    console.log('   agent-browser --session ' + browser.session + ' snapshot');
+    console.log('   agent-browser --session ' + browser.session + ' eval "WebExtractor.DebugHelper.getAllTables()"');
+    console.log('   agent-browser --session ' + browser.session + ' screenshot /tmp/debug.png');
     console.log('');
     console.log('   关闭浏览器:');
-    console.log('   npx agent-browser --session ' + browser.session + ' close');
+    console.log('   agent-browser --session ' + browser.session + ' close');
   }
   console.log('==========================');
   console.log('');
@@ -716,7 +716,7 @@ class OATools {
   async browser(session, action, params = {}) {
     const { execSync } = require('child_process');
 
-    let cmd = `npx agent-browser --session ${session}`;
+    let cmd = `agent-browser --session ${session}`;
 
     switch (action) {
       case 'click':

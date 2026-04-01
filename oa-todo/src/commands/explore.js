@@ -203,10 +203,10 @@ async function explore(url, options) {
       console.error(chalk.gray('────────────────────────────────────────────────────────────'));
       console.error(chalk.yellow('Session: ') + browser.session);
       console.error(chalk.gray('\n使用以下命令调试:'));
-      console.error(chalk.cyan(`  npx agent-browser --session ${browser.session} snapshot`));
-      console.error(chalk.cyan(`  npx agent-browser --session ${browser.session} eval "document.body.innerHTML"`));
+      console.error(chalk.cyan(`  agent-browser --session ${browser.session} snapshot`));
+      console.error(chalk.cyan(`  agent-browser --session ${browser.session} eval "document.body.innerHTML"`));
       console.error(chalk.gray('\n手动关闭浏览器:'));
-      console.error(chalk.cyan(`  npx agent-browser --session ${browser.session} close`));
+      console.error(chalk.cyan(`  agent-browser --session ${browser.session} close`));
       console.error(chalk.gray('────────────────────────────────────────────────────────────'));
     }
 

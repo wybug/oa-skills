@@ -18,7 +18,7 @@
 npm install -g agent-browser
 
 # 验证安装
-npx agent-browser --version
+agent-browser --version
 ```
 
 **使用国内镜像加速**：

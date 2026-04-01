@@ -348,8 +348,8 @@ oa-todo approve <完整ID> --pause --timeout 15
 1. 调用 `oa-todo approve <id> --pause` 创建断点
 2. 解析 JSON 输出，获取 `session` 和 `fdId`
 3. 使用 agent-browser 的 session 进行深度分析：
-   - `npx agent-browser --session <session> snapshot`
-   - `npx agent-browser --session <session> eval "document.body.innerHTML"`
+   - `agent-browser --session <session> snapshot`
+   - `agent-browser --session <session> eval "document.body.innerHTML"`
 4. 分析完成后，调用 `oa-todo approve <id> <action>` 执行审批
 5. CLI 自动检测活跃断点，复用 session，审批后关闭断点
 

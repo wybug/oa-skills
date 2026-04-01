@@ -10,7 +10,7 @@
 |------|---------|---------|---------|
 | Node.js | 14.0.0 | 18.x LTS | `node --version` |
 | npm | 6.0.0 | 9.x | `npm --version` |
-| agent-browser | 最新版 | 最新版 | `npx agent-browser --version` |
+| agent-browser | 最新版 | 最新版 | `agent-browser --version` |
 
 ### 操作系统支持
 
@@ -133,7 +133,7 @@ agent-browser --version
 所有脚本已内置支持 npx，无需全局安装：
 
 ```bash
-# 脚本会自动使用 npx agent-browser
+# 脚本会自动使用 agent-browser
 ./scripts/login.sh
 ```
 
@@ -213,7 +213,7 @@ npm --version
 agent-browser --version
 
 # 方式 2: npx 检查
-npx agent-browser --version
+agent-browser --version
 ```
 
 ### 3. 检查环境变量

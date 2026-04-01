@@ -195,12 +195,12 @@ oa-todo approve <fdId> <action> --pause
 
 **3.1 获取初始页面快照**
 ```bash
-npx agent-browser --session <session-id> snapshot
+agent-browser --session <session-id> snapshot
 ```
 
 **3.2 尝试多种查找策略点击审批按钮（模拟用户操作）**
 ```bash
-npx agent-browser --session <session-id> eval --stdin < click_approve.js
+agent-browser --session <session-id> eval --stdin < click_approve.js
 ```
 
 其中 `click_approve.js` 应使用**降级查找策略**：
@@ -283,12 +283,12 @@ npx agent-browser --session <session-id> eval --stdin < click_approve.js
 
 **3.3 获取对话框快照（分析对话框结构）**
 ```bash
-npx agent-browser --session <session-id> snapshot
+agent-browser --session <session-id> snapshot
 ```
 
 **3.4 查找并分析对话框元素（输入框、按钮等）**
 ```bash
-npx agent-browser --session <session-id> eval --stdin < analyze_dialog.js
+agent-browser --session <session-id> eval --stdin < analyze_dialog.js
 ```
 
 其中 `analyze_dialog.js` 内容示例：
@@ -369,7 +369,7 @@ npx agent-browser --session <session-id> eval --stdin < analyze_dialog.js
 
 **3.5 点击取消按钮（关闭对话框，返回初始状态）**
 ```bash
-npx agent-browser --session <session-id> eval --stdin < click_cancel.js
+agent-browser --session <session-id> eval --stdin < click_cancel.js
 ```
 
 **探索目的：**
@@ -1832,16 +1832,16 @@ oa-todo approve 12345 同意 --pause
 
 ```bash
 # 获取页面快照
-npx agent-browser --session <session-id> snapshot
+agent-browser --session <session-id> snapshot
 
 # 执行 JavaScript 代码
-npx agent-browser --session <session-id> eval --stdin < script.js
+agent-browser --session <session-id> eval --stdin < script.js
 
 # 点击元素
-npx agent-browser --session <session-id> click <selector>
+agent-browser --session <session-id> click <selector>
 
 # 输入文本
-npx agent-browser --session <session-id> type <selector> <text>
+agent-browser --session <session-id> type <selector> <text>
 ```
 
 ---

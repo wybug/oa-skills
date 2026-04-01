@@ -151,7 +151,7 @@ setInterval(async () => {
 ### 4.1 获取页面快照
 
 ```bash
-npx agent-browser --session <session> snapshot
+agent-browser --session <session> snapshot
 ```
 
 ### 4.2 识别表单字段
@@ -276,7 +276,7 @@ const session = 'oa-todo-explore-explore-1234567890-xxxxx';
 const OATools = {
   async browser(action, params = {}) {
     const { execSync } = require('child_process');
-    let cmd = `npx agent-browser --session ${session}`;
+    let cmd = `agent-browser --session ${session}`;
 
     switch (action) {
       case 'click':
@@ -355,7 +355,7 @@ const session = 'oa-todo-explore-explore-1234567890-xxxxx';
 
 const OATools = {
   async browser(action, params = {}) {
-    let cmd = `npx agent-browser --session ${session}`;
+    let cmd = `agent-browser --session ${session}`;
     // ... (同上)
   }
 };
@@ -413,30 +413,30 @@ async function approveTodo(fdId, action, comment = '') {
 
 ```bash
 # 获取页面快照
-npx agent-browser --session <session> snapshot
+agent-browser --session <session> snapshot
 
 # 保存快照到文件
-npx agent-browser --session <session> snapshot > /tmp/page_snapshot.txt
+agent-browser --session <session> snapshot > /tmp/page_snapshot.txt
 ```
 
 ### 6.2 使用 eval 测试代码
 
 ```bash
 # 测试元素查找
-npx agent-browser --session <session> eval "document.querySelector('#submit-btn') !== null"
+agent-browser --session <session> eval "document.querySelector('#submit-btn') !== null"
 
 # 获取元素属性
-npx agent-browser --session <session> eval "JSON.stringify({id: document.querySelector('#someElement').id, className: document.querySelector('#someElement').className})"
+agent-browser --session <session> eval "JSON.stringify({id: document.querySelector('#someElement').id, className: document.querySelector('#someElement').className})"
 
 # 列出所有表单字段
-npx agent-browser --session <session> eval "Array.from(document.querySelectorAll('input, select, textarea')).map(e => ({tag: e.tagName, type: e.type, id: e.id, name: e.name}))"
+agent-browser --session <session> eval "Array.from(document.querySelectorAll('input, select, textarea')).map(e => ({tag: e.tagName, type: e.type, id: e.id, name: e.name}))"
 ```
 
 ### 6.3 使用 screenshot 可视化
 
 ```bash
 # 截图保存
-npx agent-browser --session <session> screenshot /tmp/debug.png
+agent-browser --session <session> screenshot /tmp/debug.png
 
 # 在 macOS 中打开查看
 open /tmp/debug.png

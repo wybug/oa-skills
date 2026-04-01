@@ -68,7 +68,7 @@ OA_LOGS_DIR=~/.oa-todo/logs              # Log files directory
 ## Dependencies
 
 - **Node.js** >= 16.0.0 (specified in package.json engines field)
-- **agent-browser** - Auto-installed via `npx agent-browser`
+- **agent-browser** - Auto-installed via `agent-browser`
 
 ## Todo Types & Actions
 

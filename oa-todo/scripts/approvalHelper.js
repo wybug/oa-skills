@@ -33,7 +33,7 @@ class ApprovalHelper {
    * 执行 agent-browser 命令（通用工具方法）
    */
   exec(command, options = {}) {
-    const cmd = `npx agent-browser --session ${this.session} ${command}`;
+    const cmd = `agent-browser --session ${this.session} ${command}`;
     try {
       const output = execSync(cmd, {
         encoding: 'utf8',

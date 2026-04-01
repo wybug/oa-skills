@@ -157,7 +157,7 @@ await OATools.browser(session, 'screenshot', { path: '/tmp/screenshot.png' });
 首先使用 snapshot 命令获取页面当前状态：
 
 ```bash
-npx agent-browser --session <session> snapshot
+agent-browser --session <session> snapshot
 ```
 
 ### 2. 识别表单字段
@@ -172,8 +172,8 @@ npx agent-browser --session <session> snapshot
 使用 `eval` 命令检查表单元素：
 
 ```bash
-npx agent-browser --session <session> eval "document.querySelectorAll('input, select, textarea').length"
-npx agent-browser --session <session> eval "Array.from(document.querySelectorAll('input')).map(i => ({type: i.type, name: i.name, id: i.id})).slice(0, 10)"
+agent-browser --session <session> eval "document.querySelectorAll('input, select, textarea').length"
+agent-browser --session <session> eval "Array.from(document.querySelectorAll('input')).map(i => ({type: i.type, name: i.name, id: i.id})).slice(0, 10)"
 ```
 
 ### 3. 识别操作按钮
@@ -181,7 +181,7 @@ npx agent-browser --session <session> eval "Array.from(document.querySelectorAll
 查找页面上的按钮和链接：
 
 ```bash
-npx agent-browser --session <session> eval "Array.from(document.querySelectorAll('button, input[type=submit], input[type=button]')).map(b => b.textContent || b.value).slice(0, 20)"
+agent-browser --session <session> eval "Array.from(document.querySelectorAll('button, input[type=submit], input[type=button]')).map(b => b.textContent || b.value).slice(0, 20)"
 ```
 
 ### 4. 分析页面逻辑
@@ -231,16 +231,16 @@ npx agent-browser --session <session> eval "Array.from(document.querySelectorAll
 
 ```bash
 # 文本输入
-npx agent-browser --session <session> eval "document.querySelector('#fieldId').value = '填写的内容'"
+agent-browser --session <session> eval "document.querySelector('#fieldId').value = '填写的内容'"
 
 # 日期选择
-npx agent-browser --session <session> eval "document.querySelector('#dateField').value = '2026-03-25'"
+agent-browser --session <session> eval "document.querySelector('#dateField').value = '2026-03-25'"
 
 # 下拉菜单
-npx agent-browser --session <session> eval "document.querySelector('#selectField').value = 'optionValue'"
+agent-browser --session <session> eval "document.querySelector('#selectField').value = 'optionValue'"
 
 # 触发 change 事件（某些表单需要）
-npx agent-browser --session <session> eval "document.querySelector('#fieldId').dispatchEvent(new Event('change', {bubbles: true}))"
+agent-browser --session <session> eval "document.querySelector('#fieldId').dispatchEvent(new Event('change', {bubbles: true}))"
 ```
 
 ### 点击按钮
@@ -248,8 +248,8 @@ npx agent-browser --session <session> eval "document.querySelector('#fieldId').d
 使用 `click` 命令：
 
 ```bash
-npx agent-browser --session <session> click --selector "#submitButton"
-npx agent-browser --session <session> click --selector "button[type=submit]"
+agent-browser --session <session> click --selector "#submitButton"
+agent-browser --session <session> click --selector "button[type=submit]"
 ```
 
 ### 等待页面更新
@@ -257,8 +257,8 @@ npx agent-browser --session <session> click --selector "button[type=submit]"
 某些操作后需要等待页面响应：
 
 ```bash
-npx agent-browser --session <session> wait --selector ".success-message"
-npx agent-browser --session <session> wait --time 2000
+agent-browser --session <session> wait --selector ".success-message"
+agent-browser --session <session> wait --time 2000
 ```
 
 ### 命令排序原则
@@ -292,11 +292,11 @@ npx agent-browser --session <session> wait --time 2000
 ✅ [操作名称]已完成
 
 执行命令序列：
-1. npx agent-browser --session <session> eval "document.querySelector('#date').value = '2026-03-25'"
-2. npx agent-browser --session <session> eval "document.querySelector('#timeStart').value = '14:00'"
-3. npx agent-browser --session <session> eval "document.querySelector('#timeEnd').value = '18:00'"
-4. npx agent-browser --session <session> eval "document.querySelector('#capacity').value = '10'"
-5. npx agent-browser --session <session> click --selector "#btn-submit"
+1. agent-browser --session <session> eval "document.querySelector('#date').value = '2026-03-25'"
+2. agent-browser --session <session> eval "document.querySelector('#timeStart').value = '14:00'"
+3. agent-browser --session <session> eval "document.querySelector('#timeEnd').value = '18:00'"
+4. agent-browser --session <session> eval "document.querySelector('#capacity').value = '10'"
+5. agent-browser --session <session> click --selector "#btn-submit"
 
 外部参数：
 - 日期：2026-03-25
@@ -338,7 +338,7 @@ npx agent-browser --session <session> wait --time 2000
 执行命令后检查页面是否跳转：
 
 ```bash
-npx agent-browser --session <session> eval "window.location.href"
+agent-browser --session <session> eval "window.location.href"
 ```
 
 ## 最佳实践
@@ -354,23 +354,23 @@ npx agent-browser --session <session> eval "window.location.href"
 ### 检查元素是否存在
 
 ```bash
-npx agent-browser --session <session> eval "document.querySelector('#someElement') !== null"
+agent-browser --session <session> eval "document.querySelector('#someElement') !== null"
 ```
 
 ### 查看元素属性
 
 ```bash
-npx agent-browser --session <session> eval "JSON.stringify({id: document.querySelector('#someElement').id, className: document.querySelector('#someElement').className, value: document.querySelector('#someElement').value})"
+agent-browser --session <session> eval "JSON.stringify({id: document.querySelector('#someElement').id, className: document.querySelector('#someElement').className, value: document.querySelector('#someElement').value})"
 ```
 
 ### 列出所有表单字段
 
 ```bash
-npx agent-browser --session <session> eval "Array.from(document.querySelectorAll('input, select, textarea')).map(e => ({tag: e.tagName, type: e.type, id: e.id, name: e.name})).slice(0, 20)"
+agent-browser --session <session> eval "Array.from(document.querySelectorAll('input, select, textarea')).map(e => ({tag: e.tagName, type: e.type, id: e.id, name: e.name})).slice(0, 20)"
 ```
 
 ### 查找按钮文本
 
 ```bash
-npx agent-browser --session <session> eval "Array.from(document.querySelectorAll('button, input[type=submit], input[type=button], a')).map(e => e.textContent || e.value || '').filter(t => t.trim()).slice(0, 20)"
+agent-browser --session <session> eval "Array.from(document.querySelectorAll('button, input[type=submit], input[type=button], a')).map(e => e.textContent || e.value || '').filter(t => t.trim()).slice(0, 20)"
 ```

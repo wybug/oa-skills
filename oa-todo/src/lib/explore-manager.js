@@ -127,7 +127,7 @@ class ExploreManager {
         if (now > data.timeoutAt) {
           // 关闭浏览器会话
           try {
-            execSync(`npx agent-browser --session ${data.session} close`, {
+            execSync(`agent-browser --session ${data.session} close`, {
               timeout: 5000,
               stdio: 'ignore'
             });
@@ -284,7 +284,7 @@ class ExploreManager {
 
       // 关闭浏览器会话
       try {
-        execSync(`npx agent-browser --session ${data.session} close`, {
+        execSync(`agent-browser --session ${data.session} close`, {
           timeout: 5000,
           stdio: 'ignore'
         });
