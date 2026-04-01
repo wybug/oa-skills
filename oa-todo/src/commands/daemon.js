@@ -4,7 +4,7 @@
 
 const chalk = require('chalk');
 const ora = require('ora');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { PATHS } = require('../lib/paths');
@@ -139,10 +139,9 @@ async function startDaemon(options) {
     // 设置环境变量
     process.env.OA_BROWSER_HEADED = headedMode ? '1' : '0';
 
-    const headedFlag = headedMode ? '--headed' : '';
-    const cmd = `agent-browser ${headedFlag}`;
+    const headedArgs = headedMode ? ['--headed'] : [];
 
-    execSync(cmd, {
+    execFileSync('agent-browser', headedArgs, {
       stdio: 'inherit',
       timeout: 30000
     });
@@ -180,7 +179,7 @@ async function restartDaemon(options) {
 
   try {
     // 停止现有 daemon
-    execSync('agent-browser close', {
+    execFileSync('agent-browser', ['close'], {
       stdio: 'ignore',
       timeout: 5000
     });
@@ -204,8 +203,8 @@ async function restartDaemon(options) {
     // 设置环境变量
     process.env.OA_BROWSER_HEADED = headedMode ? '1' : '0';
 
-    const headedFlag = headedMode ? '--headed' : '';
-    execSync(`agent-browser ${headedFlag}`, {
+    const headedArgs = headedMode ? ['--headed'] : [];
+    execFileSync('agent-browser', headedArgs, {
       stdio: 'inherit',
       timeout: 30000
     });
@@ -225,7 +224,7 @@ async function stopDaemon() {
   log.info('Daemon stopping');
 
   try {
-    execSync('agent-browser close', {
+    execFileSync('agent-browser', ['close'], {
       stdio: 'ignore',
       timeout: 5000
     });
@@ -257,7 +256,7 @@ async function releaseDaemon() {
   }
 
   try {
-    execSync('agent-browser close', {
+    execFileSync('agent-browser', ['close'], {
       stdio: 'ignore',
       timeout: 5000
     });

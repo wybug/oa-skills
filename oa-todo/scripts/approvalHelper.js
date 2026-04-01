@@ -6,7 +6,8 @@
  * 注意：此文件提供接口定义，具体实现在子类中
  */
 
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
+const { execAgent, AGENT_BROWSER } = require('../src/lib/exec-agent');
 
 /**
  * 通用配置
@@ -33,9 +34,15 @@ class ApprovalHelper {
    * 执行 agent-browser 命令（通用工具方法）
    */
   exec(command, options = {}) {
-    const cmd = `agent-browser --session ${this.session} ${command}`;
+    const args = ['--session', this.session];
+
+    // 解析 command 字符串中的参数
+    // 使用简单的空格分割（因为 command 中的参数不包含引号包裹的复杂内容）
+    const parts = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+    args.push(...parts);
+
     try {
-      const output = execSync(cmd, {
+      const output = execFileSync(AGENT_BROWSER, args, {
         encoding: 'utf8',
         timeout: options.timeout || 30000,
         stdio: options.silent ? 'pipe' : 'inherit'
@@ -57,13 +64,17 @@ class ApprovalHelper {
     const tmpFile = `/tmp/oa_eval_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.js`;
     fs.writeFileSync(tmpFile, jsCode, 'utf-8');
     try {
-      const result = this.exec(`eval --stdin < "${tmpFile}"`, {
+      const args = ['--session', this.session, 'eval', '--stdin'];
+      const input = fs.readFileSync(tmpFile, 'utf-8');
+      const result = execFileSync(AGENT_BROWSER, args, {
+        encoding: 'utf8',
         timeout: options.timeout || 30000,
-        silent: true
+        stdio: ['pipe', 'pipe', 'pipe'],
+        input
       });
       return result;
     } finally {
-      fs.unlinkSync(tmpFile);
+      try { fs.unlinkSync(tmpFile); } catch (e) {}
     }
   }
 
