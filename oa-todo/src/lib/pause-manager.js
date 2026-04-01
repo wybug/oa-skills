@@ -5,7 +5,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const { PATHS } = require('./paths');
 const logger = require('./logger');
 const log = logger.getLogger('pause');
@@ -57,7 +57,7 @@ class PauseManager {
 
           // 关闭浏览器会话
           try {
-            execSync(`agent-browser --session ${data.session} close`, {
+            execFileSync('agent-browser', ['--session', data.session, 'close'], {
               timeout: 5000,
               stdio: 'ignore'
             });
@@ -203,7 +203,7 @@ class PauseManager {
 
       // 关闭浏览器会话
       try {
-        execSync(`agent-browser --session ${data.session} close`, {
+        execFileSync('agent-browser', ['--session', data.session, 'close'], {
           timeout: 5000,
           stdio: 'ignore'
         });

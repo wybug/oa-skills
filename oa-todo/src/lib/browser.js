@@ -2,7 +2,7 @@
  * Agent-Browser 封装模块
  */
 
-const { execSync, spawn } = require('child_process');
+const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { generateClientCode, breakpoint } = require('./web-extractor');
@@ -10,6 +10,8 @@ const { PATHS } = require('./paths');
 const { generateSessionId, SessionType } = require('./session-naming');
 const logger = require('./logger');
 const log = logger.getLogger('browser');
+const { parseArgs, execAgent, execAgentStdin, AGENT_BROWSER } = require('./exec-agent');
+const { execFileSync } = require('child_process');
 
 class Browser {
   constructor(config, options = {}) {
@@ -20,8 +22,8 @@ class Browser {
     this.cdpMode = !!this.cdpUrl;
 
     if (this.cdpMode) {
-      // CDP模式：基础命令包含 --cdp
-      this.agentBrowser = `agent-browser --cdp "${this.cdpUrl}"`;
+      // CDP模式：基础参数包含 --cdp
+      this.baseArgs = ['--cdp', this.cdpUrl];
       this.headedMode = true;
       if (this.debugMode) console.log('🔗 CDP模式：使用外部Chrome会话');
       log.info('Browser initialized in CDP mode', { cdpUrl: this.cdpUrl });
@@ -32,18 +34,17 @@ class Browser {
       // 反检测参数始终启用
       process.env.AGENT_BROWSER_ARGS = '--disable-blink-features=AutomationControlled';
 
+      // 根据 headedMode 构建基础参数
+      this.baseArgs = this.headedMode ? ['--headed'] : [];
+
       // 复用模式下不关闭现有 daemon
       if (!this.reuseMode) {
         try {
-          execSync('agent-browser close', { timeout: 5000, stdio: 'ignore' });
+          execFileSync(AGENT_BROWSER, ['close'], { timeout: 5000, stdio: 'ignore' });
         } catch (e) {
           log.debug('agent-browser close ignored (no existing daemon)', { error: e.message });
         }
       }
-
-      // 根据 headedMode 构建命令（与 debugMode 解耦）
-      const headedFlag = this.headedMode ? '--headed' : '';
-      this.agentBrowser = `agent-browser ${headedFlag}`.trim();
       log.info('Browser initialized', { headed: this.headedMode, reuse: this.reuseMode });
     }
 
@@ -75,27 +76,39 @@ class Browser {
     return false; // 默认：无头模式
   }
 
-  async exec(args, options = {}) {
-    const cmd = `${this.agentBrowser} ${args}`;
+  async exec(argsString, options = {}) {
     const startTime = Date.now();
+
+    // 解析参数字符串
+    const parsed = parseArgs(argsString);
+    const fullArgs = [...this.baseArgs, ...parsed.args];
+
+    const cmdDisplay = `${AGENT_BROWSER} ${fullArgs.join(' ')}${parsed.stdinFile ? ' < ' + parsed.stdinFile : ''}`;
 
     // 记录调试信息
     if (this.debugMode) {
       this.debugInfo.commands.push({
-        command: cmd,
-        args: args,
+        command: cmdDisplay,
+        args: argsString,
         timestamp: new Date().toISOString()
       });
     }
 
-    log.debug('exec command', { args: args.substring(0, 200), timeout: options.timeout || 60000 });
+    log.debug('exec command', { args: argsString.substring(0, 200), timeout: options.timeout || 60000 });
 
     try {
-      const result = execSync(cmd, {
+      const execOptions = {
         encoding: 'utf-8',
         timeout: options.timeout || 60000,
         maxBuffer: options.maxBuffer || 20 * 1024 * 1024
-      });
+      };
+
+      // 处理 stdin 重定向：读取文件内容作为 input
+      if (parsed.stdinFile) {
+        execOptions.input = fs.readFileSync(parsed.stdinFile, 'utf-8');
+      }
+
+      const result = execFileSync(AGENT_BROWSER, fullArgs, execOptions);
 
       const duration = Date.now() - startTime;
 
@@ -107,15 +120,15 @@ class Browser {
         };
       }
 
-      log.debug('exec completed', { args: args.substring(0, 200), duration, outputLength: result ? result.length : 0 });
+      log.debug('exec completed', { args: argsString.substring(0, 200), duration, outputLength: result ? result.length : 0 });
 
       return result;
     } catch (error) {
       // 记录错误信息
       const duration = Date.now() - startTime;
       const errorInfo = {
-        command: cmd,
-        args: args,
+        command: cmdDisplay,
+        args: argsString,
         error: error.message,
         stderr: error.stderr?.toString() || '',
         stdout: error.stdout?.toString() || '',
@@ -132,7 +145,7 @@ class Browser {
         };
       }
 
-      log.error('exec failed', { args: args.substring(0, 200), duration, code: error.status, error: error.message });
+      log.error('exec failed', { args: argsString.substring(0, 200), duration, code: error.status, error: error.message });
 
       if (error.stdout) return error.stdout;
       throw error;
@@ -753,7 +766,7 @@ class Browser {
     return {
       session: this.session,
       debugMode: this.debugMode,
-      agentBrowser: this.agentBrowser,
+      agentBrowser: `${AGENT_BROWSER} ${this.baseArgs.join(' ')}`,
       commands: this.debugInfo.commands,
       errors: this.debugInfo.errors,
       timestamp: new Date().toISOString()

@@ -7,7 +7,7 @@ const chalk = require('chalk');
 const ora = require('ora');
 const path = require('path');
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const logger = require('../lib/logger');
 const log = logger.getLogger('session');
 
@@ -99,7 +99,7 @@ async function closeSession(sessionId, pausesDir, exploreSessionsDir) {
   if (fs.existsSync(pausePath)) {
     const data = JSON.parse(fs.readFileSync(pausePath, 'utf8'));
     try {
-      execSync(`agent-browser --session ${data.session} close`, { stdio: 'ignore' });
+      execFileSync('agent-browser', ['--session', data.session, 'close'], { stdio: 'ignore' });
     } catch (e) {
       log.warn('close pause session browser failed', { sessionId, error: e.message });
     }
@@ -116,7 +116,7 @@ async function closeSession(sessionId, pausesDir, exploreSessionsDir) {
     if (fs.existsSync(metaPath)) {
       const data = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
       try {
-        execSync(`agent-browser --session ${data.session} close`, { stdio: 'ignore' });
+        execFileSync('agent-browser', ['--session', data.session, 'close'], { stdio: 'ignore' });
       } catch (e) {
         log.warn('close explore session browser failed', { sessionId, error: e.message });
       }

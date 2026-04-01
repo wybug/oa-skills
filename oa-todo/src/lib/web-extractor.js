@@ -714,39 +714,39 @@ class OATools {
    * @returns {Promise<string>} 命令输出
    */
   async browser(session, action, params = {}) {
-    const { execSync } = require('child_process');
+    const { execFileSync } = require('child_process');
 
-    let cmd = `agent-browser --session ${session}`;
+    const args = ['--session', session];
 
     switch (action) {
       case 'click':
-        cmd += ` click --selector "${params.selector}"`;
+        args.push('click', '--selector', params.selector);
         break;
       case 'eval':
-        cmd += ` eval "${params.code.replace(/"/g, '\\"')}"`;
+        args.push('eval', params.code);
         break;
       case 'snapshot':
-        cmd += ' snapshot';
+        args.push('snapshot');
         break;
       case 'wait':
         if (params.selector) {
-          cmd += ` wait --selector "${params.selector}"`;
+          args.push('wait', '--selector', params.selector);
         } else if (params.time) {
-          cmd += ` wait --time ${params.time}`;
+          args.push('wait', '--time', String(params.time));
         } else {
-          cmd += ' wait --load networkidle';
+          args.push('wait', '--load', 'networkidle');
         }
         break;
       case 'screenshot':
         const screenshotPath = params.path || `/tmp/oa-screenshot-${Date.now()}.png`;
-        cmd += ` screenshot ${screenshotPath}`;
+        args.push('screenshot', screenshotPath);
         break;
       default:
         throw new Error(`未知的浏览器操作: ${action}`);
     }
 
     try {
-      const output = execSync(cmd, {
+      const output = execFileSync('agent-browser', args, {
         encoding: 'utf8',
         timeout: params.timeout || 30000,
         stdio: ['ignore', 'pipe', 'pipe']
